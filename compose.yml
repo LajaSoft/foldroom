@@ -1,0 +1,92 @@
+services:
+  site:
+    image: nginx:stable-alpine
+    ports:
+      - "127.0.0.1:${SITE_PORT:-8080}:80"
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  site-test:
+    image: node:24-alpine
+    working_dir: /work
+    volumes:
+      - ./web:/work:ro
+    command: [node, --test]
+
+  godot: &godot
+    image: godot-ffb-build
+    build:
+      context: ../godot-racing
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    working_dir: /work
+    group_add:
+      - "${INPUT_GID:-995}"
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      HOME: /tmp
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+      XDG_RUNTIME_DIR: /run/user/${LOCAL_UID:-1000}
+      WAYLAND_DISPLAY: "${WAYLAND_DISPLAY:-wayland-0}"
+      DISPLAY: "${DISPLAY:-:0}"
+      XAUTHORITY: "${XAUTHORITY:-}"
+      PULSE_SERVER: unix:/run/user/${LOCAL_UID:-1000}/pulse/native
+      GODOT_DISPLAY_DRIVER: "${GODOT_DISPLAY_DRIVER:-x11}"
+      GODOT_AUDIO_DRIVER: "${GODOT_AUDIO_DRIVER:-PulseAudio}"
+    volumes:
+      - ./godot:/work/godot
+      - ./.runtime/godot:/tmp/.local/share/godot/app_userdata/FoldRoom
+      - /dev/input:/dev/input
+      - /run/user/${LOCAL_UID:-1000}:/run/user/${LOCAL_UID:-1000}
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    command: [bash, /work/godot/run.sh]
+
+  godot-editor:
+    <<: *godot
+    command: [bash, /work/godot/run.sh, --editor]
+
+  godot-test:
+    image: godot-ffb-build
+    build:
+      context: ../godot-racing
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOME: /tmp
+    working_dir: /work
+    volumes:
+      - ./godot:/work/godot
+    command: [bash, /work/godot/tests/run.sh]
+
+  godot-reference:
+    image: node:24-alpine
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    working_dir: /work
+    volumes:
+      - .:/work
+    command: [node, godot/tests/generate-reference.mjs]
+
+  ffb-build:
+    image: godot-ffb-build
+    build:
+      context: ../godot-racing
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOME: /tmp
+      GODOT_CPP_BRANCH: "4.4"
+    volumes:
+      - ../godot-racing:/ffb-source
+      - ./godot/addons/ffb:/ffb-destination
+    command: [bash, -euc, 'make -C /ffb-source build JOBS=4; cp /ffb-source/demo/addons/ffb/bin/libffb.linux.template_debug.x86_64.so /ffb-destination/bin/']

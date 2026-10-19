@@ -1,0 +1,84 @@
+# FoldRoom
+
+Native Godot port of the English web game, with Ball mode as the default and Moza force feedback. The original web source and its preview input fix remain in `web/`.
+
+## Run
+
+```bash
+# Native game, NVIDIA + X11 + Moza + PulseAudio
+docker compose up godot
+
+# Godot editor
+docker compose run --rm godot-editor
+
+# Original browser game at http://localhost:8080
+docker compose up site
+```
+
+The native launcher imports the project and registers the FFB extension before running, including on a fresh checkout. No Node/npm, PHP or Godot installation on the host is needed.
+
+The game opens paused. Enter starts; Escape pauses. Ball mode starts stationary; W accelerates and S brakes. A/D turn toward the side of the rendered screen. Shift boosts ×5. Mouse steers horizontally and adjusts pitch vertically. M switches between Ball and Walk. Arrow keys are secondary movement bindings.
+
+LMB creates a straight passage; RMB folds upward; Shift+RMB folds downward. Delete removes both ends. Shift+LMB draws on a wall. B spawns a powered sphere; Shift+B removes the oldest (16 maximum). Scroll pulls the camera back through the lattice into a transparent external overview. Home returns to the start. Ctrl+R resets the maze.
+
+Pause → **Controls / Wheel / Audio** assigns keys, mouse buttons, gamepad buttons and Linux wheel buttons. Each action has Primary and Secondary assignments: keep the mouse/keyboard control and assign a wheel button alongside it. Click either slot and press the intended input; Escape cancels assignment, and × clears only that slot. Old single-assignment settings load into Primary. Holding both inputs keeps the action active until both are released, without double-triggering an identical binding. Axis assignment learns the ABS code from an axis moved through at least 20% of its travel. The screen shows live steering/pedal values, offers per-axis inversion, physical wheel range, game steering lock, deadzone, FFB enable/direction/strength and effects volume. Settings persist under `.runtime/godot/`, together with quick saves.
+
+## Mechanics and compatibility
+
+`godot/scripts/maze.gd` and `motion.gd` port the original room lattice, reversible quarter-turn portals, local gravity, distance-bounded integration, powered-ball motor, friction/restitution, sphere contacts and inertial ball camera. This uses the same formulas as the web game rather than Godot rigid-body collision solving. Room size 6, sphere diameter 1, gravity 8, steering rate 1.8 rad/s, walking speed 2.6, ×5 boost and the 10,000-room limit match the source.
+
+The first-person Godot shader directly ports the WebGL portal ray tracer, including visible rooms beyond folds, sphere shading, wall grids and PNG ink. A sphere overlapping a portal has a render image in each room, with transformed position, gravity and spin; the simulation still contains only one sphere. This preserves its opaque surface when the center switches rooms. Native instanced geometry draws the external overview; its transparent-wall sorting and sphere lighting are not pixel-identical to WebGL. The UI is native Godot. Web touch controls and the Strudel/WebAudio music engine are not part of this desktop port; motor and impact sounds are synthesized natively.
+
+Pause → Export/Import JSON exchanges version-1 state with the original web game, including room IDs, both portal endpoints, actor frames, spinning balls and wall PNGs. Imported Walk saves remain Walk; new games and the Example start in Ball mode. Import validates the entire state before replacing the live maze. Quick save/load uses `user://foldroom.json`; file import/export and clipboard export are also available.
+
+## Moza / gyroscope model
+
+The port uses the `godot-racing` evdev GDExtension to read the actual wheel axes/buttons and send signed constant force. It auto-finds the Gudsen/Moza FFB device or opens a path chosen in Setup. Initial ABS mappings match the R3 example: steering 0, throttle 2, brake 5, inverted force direction. The physical range defaults to the example's 2540° and game lock to 540°; set Physical wheel range to the actual range configured on your wheel.
+
+`godot/scripts/gyro.gd` is an approximate feel model, separate from motion physics. Rolling angular speed increases resistance to steering and restoring torque. Steering velocity adds damping; actual sideways acceleration adds contact load. Wall and sphere collision impulses generate a signed initial tap followed by a decaying 38 Hz vibration lasting at most 220 ms. Its separate Impact vibration setting controls transient strength. The burst bypasses steering smoothing; the final combined torque still respects the overall FFB limit. A portal's frame rotation is removed from the acceleration calculation so changing gravity does not invent an impact. Ground-contact load vanishes in free fall while internal-rotor resistance remains.
+
+FFB starts at 35% strength, with torque clipping and a slew limit. Pause, focus loss, Walk mode, disconnect and shutdown stop the constant-force effect. Setup never sends a test force. Hardware feel has not been judged by a human yet; the gains are the starting approximation for tuning with the wheel.
+
+The supplied debug `.so` is copied from `../godot-racing/demo/addons/ffb/bin/` and matches its Godot 4.4.1 runtime. Rebuild it from the adjacent source with:
+
+```bash
+docker compose run --rm ffb-build
+```
+
+## Docker desktop integration
+
+Dependencies: Docker Engine + Compose, NVIDIA Container Toolkit, the adjacent `../godot-racing` checkout and the host's working Moza kernel driver. Runtime/build image comes from that project's Dockerfile: Ubuntu 24.04 and Godot 4.4.1, deliberately matching the compiled extension. Browser service uses nginx `stable-alpine`; reference/web tests use Node.js `24-alpine` (no npm install needed).
+
+The Godot services pass both NVIDIA GPUs, `/dev/input`, X11 sockets and the desktop runtime directory through as in the racing project. PulseAudio connects to the host's Pulse/PipeWire compatibility socket. Defaults are UID/GID 1000 and input group 995. Override `LOCAL_UID`, `LOCAL_GID`, `INPUT_GID`, `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `GODOT_DISPLAY_DRIVER` or `GODOT_AUDIO_DRIVER` when needed. Xauthority must be within the mounted runtime directory. For silent tests use `GODOT_AUDIO_DRIVER=Dummy`.
+
+## Verification
+
+```bash
+# Original web regression suite
+docker compose run --rm site-test
+
+# Regenerate numerical fixtures with the original JS engine
+docker compose run --rm godot-reference
+
+# Native physics, JSON, controls, persistence and force model (no device mount)
+docker compose run --rm godot-test
+
+# Real NVIDIA/X11/PulseAudio integration; no physical wheel torque is sent
+docker compose run --rm godot bash /work/godot/run.sh -- --smoke-test
+
+# GPU regression: opaque spheres at straight/up/down portal seams
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/portal_render.gd
+
+# Feed native-export.json back into the unmodified original web importer
+docker compose run --rm godot-reference node godot/tests/verify-export.mjs
+```
+
+The numerical reference covers all 72 oriented straight/up/down portal cases, 36 Ball/Walk trajectories with multiple checkpoints, three powered-ball runs and sphere-to-sphere contacts. Native checks also cover inverse links/removal/conflicts, 10,000 rooms, high-speed bounds, camera orthogonality, JSON validation/recovery, signed and bounded gyro forces, axis/button learning, persistence, zero force on pause and failed-effect handling. Smoke checks exercise real application wiring, keyboard movement, wall painting/PNG export, settings capture and restore, plus screenshots of portal rendering, overview and Setup. Generated captures and native exports are ignored by Git.
+
+Measured reference trajectory error on this machine: maximum vector difference approximately 0.00015 (Godot Vector3 uses single precision; JS uses double precision). NVIDIA/X11 rendering and PulseAudio output initialized successfully; Gudsen R3 device discovery and live input polling succeeded. Physical torque response still needs a hands-on driving session.
+
+## Source and license
+
+Web source downloaded from https://foldroom-english.skszd.chatgpt.site at commit `312761b45483e7efe206f746c12ac801c92f275b`. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the adjacent FFB project supplies the extension source and build scripts.
+
+Portal seam regression captures compare a sphere in the same physical pose with its center owned by either adjacent room. All three portal types render identically in this test, with 100% opaque coverage in the central sampled area. The native suite also checks portal images in all 72 orientations, two-slot input learning/persistence/release behavior, legacy config migration and the alternating/decaying collision waveform.

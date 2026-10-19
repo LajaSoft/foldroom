@@ -1,0 +1,10 @@
+.env
+godot/.godot/
+.runtime/*
+!.runtime/godot/
+.runtime/godot/*
+!.runtime/godot/.gitkeep
+godot/tests/*-smoke.png
+godot/tests/native-export.json
+godot/tests/*-smoke.png.import
+web/
