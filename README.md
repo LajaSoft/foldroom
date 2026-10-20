@@ -8,7 +8,7 @@ Godot port of my game originally created in GPT Sites, with Moza force feedback.
 
 ![External room overview](docs/media/overview.jpg)
 
-[Watch the 28-second gameplay clip](https://lajasoft.github.io/foldroom/) · [Wheel and controls](docs/media/controls.jpg)
+[Watch the tube demo and gameplay clips](https://lajasoft.github.io/foldroom/) · [Wheel and controls](docs/media/controls.jpg)
 
 ## CI and Linux builds
 

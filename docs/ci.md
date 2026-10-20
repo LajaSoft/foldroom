@@ -19,6 +19,8 @@ GitLab uses TLS Docker-in-Docker. The Docker runner needs privileged mode and a 
 
 Media: `docs/media/foldroom-gameplay.mp4` is a silent 28-second excerpt (12–40 s) of `tmp/demo_0.001.mp4`, encoded H.264 at 30 fps. The original recording stays ignored. Screenshots show actual game output.
 
+`docs/media/tube_demo.mp4` is a 35-second excerpt (25–60 s) of `tmp/tube_demo.mp4`, encoded H.264 at 60 fps with AAC audio. Its poster is `docs/media/tube_demo.jpg`.
+
 ## Gameplay player
 
-The Pages workflow publishes only `docs/gameplay.html` and its poster. The HTML video player streams the MP4 from the raw GitHub URL with an explicit `video/mp4` source type. Enable GitHub Pages with **Source: GitHub Actions** in repository Settings → Pages. The workflow deploys on relevant pushes to `main` or manual dispatch; the original web game is not published.
+The Pages workflow publishes only `docs/gameplay.html` and the video posters. The HTML video player streams the MP4 from the raw GitHub URL with an explicit `video/mp4` source type. Enable GitHub Pages with **Source: GitHub Actions** in repository Settings → Pages. The workflow deploys on relevant pushes to `main` or manual dispatch; the original web game is not published.
