@@ -1,6 +1,24 @@
 # FoldRoom
 
-Native Godot port of the English web game, with Ball mode as the default and Moza force feedback. The original web source and its preview input fix remain in `web/`.
+Godot port of my game originally created in GPT Sites, with Moza force feedback.
+
+## Preview
+
+![Rolling balls and folded rooms](docs/media/rolling-balls.jpg)
+
+![External room overview](docs/media/overview.jpg)
+
+[Watch the 28-second gameplay clip](docs/media/foldroom-gameplay.mp4) · [Wheel and controls](docs/media/controls.jpg)
+
+## CI and Linux builds
+
+```bash
+bash docker/run-ci.sh
+```
+
+GitHub Actions and GitLab CI run the same Docker pipeline: native regressions, original web tests, JSON round-trip verification, Linux release export and a headless launch of the exported executable. Results and logs are copied to `artifacts/`, including a tarball and SHA-256 checksum. The CI container needs no GPU or wheel. Desktop services continue to use the runtime image.
+
+See [CI setup and test cases](docs/ci.md) and [Flatpak packaging assessment](docs/flatpak.md).
 
 ## Run
 
@@ -52,7 +70,7 @@ docker compose up godot
 docker compose run --rm ffb-build
 ```
 
-Source integration is used because the repository does not yet have a binary `addon-v0.1.0` tag or a release. See [FFB dependency integration](docs/ffb-dependency.md) for the lock, build and gd-plug migration details.
+Source integration keeps the FFB build pinned and reproducible; the upstream binary `addon-v0.1.0` tag is also available. See [FFB dependency integration](docs/ffb-dependency.md) for the lock, build and gd-plug migration details.
 
 ## Docker desktop integration
 
@@ -88,6 +106,6 @@ Measured reference trajectory error on this machine: maximum vector difference a
 
 ## Source and license
 
-Web source downloaded from https://foldroom-english.skszd.chatgpt.site at commit `312761b45483e7efe206f746c12ac801c92f275b`. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the pinned GitHub FFB project supplies the MIT-licensed extension source and build scripts.
+The original game was created in GPT Sites by the same author. Its source is preserved in `web/` for reference and regression testing; release builds contain the native Godot game. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the pinned GitHub FFB project supplies the MIT-licensed extension source and build scripts.
 
 Portal seam regression captures compare a sphere in the same physical pose with its center owned by either adjacent room. All three portal types render identically in this test, with 100% opaque coverage in the central sampled area. The native suite also checks portal images in all 72 orientations, two-slot input learning/persistence/release behavior, legacy config migration and the alternating/decaying collision waveform.

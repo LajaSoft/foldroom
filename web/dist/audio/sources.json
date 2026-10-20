@@ -1,0 +1,37 @@
+{
+  "RolandTR909_bd": {
+    "file": "bd.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-bd/Bassdrum-01.wav",
+    "bytes": 82232
+  },
+  "RolandTR909_cp": {
+    "file": "cp.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-cp/Clap.wav",
+    "bytes": 135952
+  },
+  "RolandTR909_hh": {
+    "file": "hh.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-hh/hh01.wav",
+    "bytes": 21228
+  },
+  "RolandTR909_lt": {
+    "file": "lt.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-lt/Tom%20L.wav",
+    "bytes": 154132
+  },
+  "RolandTR909_mt": {
+    "file": "mt.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-mt/Tom%20M.wav",
+    "bytes": 140456
+  },
+  "RolandTR909_oh": {
+    "file": "oh.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-oh/Hat%20Open.wav",
+    "bytes": 136420
+  },
+  "RolandTR909_rim": {
+    "file": "rim.wav",
+    "source": "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/RolandTR909/rolandtr909-rim/Rimhot.wav",
+    "bytes": 46360
+  }
+}

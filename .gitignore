@@ -7,4 +7,5 @@ godot/.godot/
 godot/tests/*-smoke.png
 godot/tests/native-export.json
 godot/tests/*-smoke.png.import
-web/
+artifacts/
+web/node_modules/

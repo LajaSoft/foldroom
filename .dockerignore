@@ -1,4 +1,12 @@
 *
 !docker/
-!docker/install-ffb.sh
+!docker/**
 !Dockerfile.godot
+!godot/
+!godot/**
+!web/
+!web/**
+godot/.godot/
+godot/tests/*-smoke.png*
+godot/tests/native-export.json
+web/.git/

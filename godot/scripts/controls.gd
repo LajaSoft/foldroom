@@ -94,6 +94,10 @@ func connect_wheel() -> void:
 	if not ClassDB.class_exists("FFBManager"):
 		status_changed.emit("FFB extension missing; build it using docker compose run --rm ffb-build")
 		return
+	if device_path.is_empty() and not DirAccess.dir_exists_absolute("/dev/input"):
+		device_name = "Wheel input unavailable: /dev/input is not accessible"
+		status_changed.emit(device_name)
+		return
 	manager = ClassDB.instantiate("FFBManager")
 	wheel = manager.open_moza() if device_path.is_empty() else manager.open_device(device_path)
 	if wheel == null or not wheel.is_open():

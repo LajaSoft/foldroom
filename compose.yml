@@ -2,6 +2,7 @@
 x-godot-build: &godot-build
   context: .
   dockerfile: Dockerfile.godot
+  target: runtime
   additional_contexts:
     ffb-source: https://github.com/LajaSoft/godot-racing.git#3d9339ba851929f5dd9b834bb3f3efb5708bd4f0
 

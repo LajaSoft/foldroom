@@ -22,9 +22,9 @@ After updating the locked commit, rebuild the image and restart the game. `ffb-b
 
 ## gd-plug
 
-The published repository initially contains only the source branch: no binary distribution tag or GitHub Release. A gd-plug installation of that branch alone cannot supply the required `.so` files. This integration therefore compiles the locked source in Docker.
+The upstream repository publishes a binary addon tag and release. This integration continues to compile the locked source in Docker. Installing the source branch alone does not supply built `.so` files.
 
-When `addon-v0.1.0` is published, a consumer can instead use:
+A consumer can alternatively use the published binary tag:
 
 ```gdscript
 extends "res://addons/gd-plug/plug.gd"
@@ -33,7 +33,7 @@ func _plugging():
     plug("LajaSoft/godot-racing", {"tag": "addon-v0.1.0"})
 ```
 
-That is a future migration example, not an enabled dependency declaration. The runtime remains 4.4.1, which also supports upstream gd-plug 0.2.6.
+That is an alternative integration example, not an enabled dependency declaration. The runtime remains 4.4.1, which also supports upstream gd-plug 0.2.6.
 
 ## Verification
 

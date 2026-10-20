@@ -1,0 +1,13 @@
+# Standalone CI: no host GPU, audio sockets, input devices or bind mounts.
+services:
+  ci:
+    image: foldroom-ci
+    build:
+      context: .
+      dockerfile: Dockerfile.godot
+      target: ci
+      additional_contexts:
+        ffb-source: https://github.com/LajaSoft/godot-racing.git#3d9339ba851929f5dd9b834bb3f3efb5708bd4f0
+    environment:
+      HOME: /root
+    command: [bash, /work/docker/ci.sh]

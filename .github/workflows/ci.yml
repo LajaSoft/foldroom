@@ -1,0 +1,21 @@
+name: Build and verify FoldRoom
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test and export Linux build
+        run: bash docker/run-ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FoldRoom-linux-x86_64
+          path: artifacts/
+          if-no-files-found: error

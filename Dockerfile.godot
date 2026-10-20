@@ -31,3 +31,17 @@ RUN curl -fL -o /tmp/godot.zip \
 COPY --from=ffb-build /source/addons/ffb /opt/godot-racing/addons/ffb
 COPY docker/install-ffb.sh /usr/local/bin/install-ffb
 WORKDIR /work
+
+# CI packages the source into the image so remote Docker daemons need no bind mounts.
+FROM runtime AS ci
+ARG GODOT_VERSION
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN curl -fL -o /tmp/templates.tpz \
+    "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" \
+    && mkdir -p /root/.local/share/godot/export_templates/4.4.1.stable \
+    && unzip -j /tmp/templates.tpz templates/linux_release.x86_64 -d /root/.local/share/godot/export_templates/4.4.1.stable \
+    && rm /tmp/templates.tpz
+COPY godot /work/godot
+COPY web /work/web
+COPY docker /work/docker
+RUN install-ffb
