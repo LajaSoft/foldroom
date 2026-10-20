@@ -23,6 +23,7 @@ var root: Control
 var hud: Label
 var target: Label
 var crosshair: Label
+var gravity_pointer: Line2D
 var notice: Label
 var menu: PanelContainer
 var menu_content: VBoxContainer
@@ -148,6 +149,12 @@ func build_hud() -> void:
 	crosshair.offset_left = -9
 	crosshair.offset_top = -17
 	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gravity_pointer = Line2D.new()
+	gravity_pointer.width = 2.0
+	gravity_pointer.default_color = Color("ffdf38")
+	gravity_pointer.antialiased = true
+	gravity_pointer.visible = false
+	root.add_child(gravity_pointer)
 	notice = label("", root, 16)
 	notice.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	notice.offset_top = -100
@@ -682,6 +689,21 @@ func _physics_process(dt: float) -> void:
 	sound.speed = player.velocity.length()
 	sound.throttle = maxf(0, forward)
 
+func update_gravity_pointer() -> void:
+	gravity_pointer.visible = active and maze.tubes and renderer.camera_distance == 0
+	crosshair.modulate = Color.WHITE
+	if not gravity_pointer.visible:
+		return
+	var frame := Motion.camera_frame(maze, player)
+	var down: Vector3 = -frame.gravityUp
+	var right: Vector3 = frame.forward.cross(frame.up).normalized()
+	var projected := Vector2(down.dot(right), -down.dot(frame.up))
+	gravity_pointer.position = root.size / 2.0 + marker_cursor
+	gravity_pointer.points = PackedVector2Array([Vector2.ZERO, projected.limit_length(1.0) * 18.0])
+	var alignment := clampf(down.dot(frame.forward), -1.0, 1.0)
+	var tint := Color("55ed78") if alignment >= 0.0 else Color("ff5050")
+	crosshair.modulate = Color.WHITE.lerp(tint, absf(alignment))
+
 func _process(dt: float) -> void:
 	if dirty:
 		renderer.rebuild(maze)
@@ -696,6 +718,7 @@ func _process(dt: float) -> void:
 		crosshair.position = root.size / 2.0 + marker_cursor - Vector2(9, 17)
 		crosshair.text = "⊙" if drawing else "+"
 		crosshair.visible = renderer.camera_distance == 0
+	update_gravity_pointer()
 	if setup_panel.visible:
 		wheel_live.text = "%s\nSteer %+.3f · throttle %.3f · brake %.3f\nABS codes: steer %d / throttle %d / brake %d\nAssigning axis: %s" % [controls.device_name, controls.steering, controls.throttle, controls.brake, controls.steer_code, controls.throttle_code, controls.brake_code, controls.axis_listening]
 	toast_time = maxf(0, toast_time - dt)
