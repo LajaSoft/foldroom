@@ -1,3 +1,10 @@
+# Locked public GitHub source; no adjacent checkout or GitHub credentials needed.
+x-godot-build: &godot-build
+  context: .
+  dockerfile: Dockerfile.godot
+  additional_contexts:
+    ffb-source: https://github.com/LajaSoft/godot-racing.git#3d9339ba851929f5dd9b834bb3f3efb5708bd4f0
+
 services:
   site:
     image: nginx:stable-alpine
@@ -19,9 +26,11 @@ services:
     command: [node, --test]
 
   godot: &godot
-    image: godot-ffb-build
-    build:
-      context: ../godot-racing
+    depends_on:
+      ffb-build:
+        condition: service_completed_successfully
+    image: foldroom-godot
+    build: *godot-build
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     working_dir: /work
     group_add:
@@ -59,9 +68,11 @@ services:
     command: [bash, /work/godot/run.sh, --editor]
 
   godot-test:
-    image: godot-ffb-build
-    build:
-      context: ../godot-racing
+    depends_on:
+      ffb-build:
+        condition: service_completed_successfully
+    image: foldroom-godot
+    build: *godot-build
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     environment:
       HOME: /tmp
@@ -79,14 +90,9 @@ services:
     command: [node, godot/tests/generate-reference.mjs]
 
   ffb-build:
-    image: godot-ffb-build
-    build:
-      context: ../godot-racing
+    image: foldroom-godot
+    build: *godot-build
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    environment:
-      HOME: /tmp
-      GODOT_CPP_BRANCH: "4.4"
     volumes:
-      - ../godot-racing:/ffb-source
-      - ./godot/addons/ffb:/ffb-destination
-    command: [bash, -euc, 'make -C /ffb-source build JOBS=4; cp /ffb-source/demo/addons/ffb/bin/libffb.linux.template_debug.x86_64.so /ffb-destination/bin/']
+      - ./godot:/work/godot
+    command: [install-ffb]

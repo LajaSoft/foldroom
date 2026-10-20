@@ -1,0 +1,4 @@
+*
+!docker/
+!docker/install-ffb.sh
+!Dockerfile.godot

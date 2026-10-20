@@ -25,6 +25,8 @@ Pause → **Controls / Wheel / Audio** assigns keys, mouse buttons, gamepad butt
 
 ## Mechanics and compatibility
 
+Planned gameplay concepts are collected in [Game mode ideas](docs/game-mode-ideas.md).
+
 `godot/scripts/maze.gd` and `motion.gd` port the original room lattice, reversible quarter-turn portals, local gravity, distance-bounded integration, powered-ball motor, friction/restitution, sphere contacts and inertial ball camera. This uses the same formulas as the web game rather than Godot rigid-body collision solving. Room size 6, sphere diameter 1, gravity 8, steering rate 1.8 rad/s, walking speed 2.6, ×5 boost and the 10,000-room limit match the source.
 
 The first-person Godot shader directly ports the WebGL portal ray tracer, including visible rooms beyond folds, sphere shading, wall grids and PNG ink. A sphere overlapping a portal has a render image in each room, with transformed position, gravity and spin; the simulation still contains only one sphere. This preserves its opaque surface when the center switches rooms. Native instanced geometry draws the external overview; its transparent-wall sorting and sphere lighting are not pixel-identical to WebGL. The UI is native Godot. Web touch controls and the Strudel/WebAudio music engine are not part of this desktop port; motor and impact sounds are synthesized natively.
@@ -39,15 +41,22 @@ The port uses the `godot-racing` evdev GDExtension to read the actual wheel axes
 
 FFB starts at 35% strength, with torque clipping and a slew limit. Pause, focus loss, Walk mode, disconnect and shutdown stop the constant-force effect. Setup never sends a test force. Hardware feel has not been judged by a human yet; the gains are the starting approximation for tuning with the wheel.
 
-The supplied debug `.so` is copied from `../godot-racing/demo/addons/ffb/bin/` and matches its Godot 4.4.1 runtime. Rebuild it from the adjacent source with:
+The FFB dependency is fetched from [LajaSoft/godot-racing](https://github.com/LajaSoft/godot-racing) at commit `3d9339ba851929f5dd9b834bb3f3efb5708bd4f0` by Docker BuildKit. Both debug and release libraries are compiled in Ubuntu 22.04 and installed with the complete MIT-licensed addon. No adjacent checkout is needed. The game, editor and test services install the dependency automatically before starting.
 
 ```bash
+# First run or after changing the pinned GitHub commit
+docker compose build godot
+docker compose up godot
+
+# Reinstall the addon from the built image
 docker compose run --rm ffb-build
 ```
 
+Source integration is used because the repository does not yet have a binary `addon-v0.1.0` tag or a release. See [FFB dependency integration](docs/ffb-dependency.md) for the lock, build and gd-plug migration details.
+
 ## Docker desktop integration
 
-Dependencies: Docker Engine + Compose, NVIDIA Container Toolkit, the adjacent `../godot-racing` checkout and the host's working Moza kernel driver. Runtime/build image comes from that project's Dockerfile: Ubuntu 24.04 and Godot 4.4.1, deliberately matching the compiled extension. Browser service uses nginx `stable-alpine`; reference/web tests use Node.js `24-alpine` (no npm install needed).
+Dependencies: Docker Engine + Compose with BuildKit Git/additional-context support, NVIDIA Container Toolkit, the host's working Moza kernel driver. `Dockerfile.godot` supplies Ubuntu 24.04 and Godot 4.4.1; its separate Ubuntu 22.04 stage builds the pinned FFB source. The public dependency is fetched over HTTPS without GitHub credentials. Browser service uses nginx `stable-alpine`; reference/web tests use Node.js `24-alpine` (no npm install needed).
 
 The Godot services pass both NVIDIA GPUs, `/dev/input`, X11 sockets and the desktop runtime directory through as in the racing project. PulseAudio connects to the host's Pulse/PipeWire compatibility socket. Defaults are UID/GID 1000 and input group 995. Override `LOCAL_UID`, `LOCAL_GID`, `INPUT_GID`, `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `GODOT_DISPLAY_DRIVER` or `GODOT_AUDIO_DRIVER` when needed. Xauthority must be within the mounted runtime directory. For silent tests use `GODOT_AUDIO_DRIVER=Dummy`.
 
@@ -79,6 +88,6 @@ Measured reference trajectory error on this machine: maximum vector difference a
 
 ## Source and license
 
-Web source downloaded from https://foldroom-english.skszd.chatgpt.site at commit `312761b45483e7efe206f746c12ac801c92f275b`. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the adjacent FFB project supplies the extension source and build scripts.
+Web source downloaded from https://foldroom-english.skszd.chatgpt.site at commit `312761b45483e7efe206f746c12ac801c92f275b`. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the pinned GitHub FFB project supplies the MIT-licensed extension source and build scripts.
 
 Portal seam regression captures compare a sphere in the same physical pose with its center owned by either adjacent room. All three portal types render identically in this test, with 100% opaque coverage in the central sampled area. The native suite also checks portal images in all 72 orientations, two-slot input learning/persistence/release behavior, legacy config migration and the alternating/decaying collision waveform.

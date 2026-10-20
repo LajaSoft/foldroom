@@ -86,6 +86,7 @@ func run() -> void:
 	test_stability()
 	test_gyro()
 	test_controls()
+	test_native_ffb()
 	test_wheel()
 	test_secondary_bindings()
 	test_impact_vibration()
@@ -93,6 +94,22 @@ func run() -> void:
 	if not failures.is_empty():
 		print(JSON.stringify(failures))
 	quit(0 if failures.is_empty() else 1)
+
+func test_native_ffb() -> void:
+	for native_class in ["FFBManager", "FFBDevice"]:
+		check(ClassDB.class_exists(native_class), "GitHub FFB registers " + native_class)
+		if not ClassDB.class_exists(native_class):
+			return
+	for method in ["open_moza", "open_device", "list_devices"]:
+		check(ClassDB.class_has_method("FFBManager", method), "FFBManager API: " + method)
+	for method in ["poll", "get_axes", "get_axis_normalized", "get_axis_centered", "is_button_pressed", "start_constant_force", "update_constant_force", "stop_constant_force", "set_gain", "set_inverted", "set_autocenter", "close"]:
+		check(ClassDB.class_has_method("FFBDevice", method), "FoldRoom wheel API: " + method)
+	var device = ClassDB.instantiate("FFBDevice")
+	check(not device.is_open(), "Native device starts closed; no hardware opened")
+	device.close()
+	check(not device.is_open(), "Closing an unused native device is idempotent")
+	check(FileAccess.file_exists("res://addons/ffb/bin/libffb.linux.template_release.x86_64.so"), "Release library installed alongside debug")
+	check(FileAccess.get_file_as_string("res://addons/ffb/VERSION").strip_edges() == "0.1.0", "Installed FFB version matches pinned GitHub source")
 
 func test_portals(cases: Array) -> void:
 	for i in range(cases.size()):
