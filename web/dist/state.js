@@ -29,7 +29,7 @@ export function exportState(maze, player, balls, marks) {
       passages.push({a: [room.id, face], b: [link.target, link.face], kind: link.kind});
     });
   }
-  return JSON.stringify({format: 'foldroom', version: 1, rooms: maze.rooms.map(room => ({cell: room.cell, markers: room.markers})), passages, player, balls, marks});
+  return JSON.stringify({format: 'foldroom', version: 1, rooms: maze.rooms.map(room => ({cell: room.cell, markers: room.markers})), passages, player, balls, marks}, null, 2);
 }
 
 export function importState(text) {

@@ -259,9 +259,15 @@ document.addEventListener('keydown',e=> {
   if(e.code==='Escape'&&active){pause();return;}
   if(!active)return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Delete','Space','ShiftLeft','ShiftRight'].includes(e.code))e.preventDefault();keys.add(e.key==='Shift'?'Shift':e.code);if(e.key==='Shift')updateCursor();if(e.code==='KeyB'&&!e.repeat){if(e.shiftKey)removeOldestBall();else spawnBall();}if(e.code==='Delete'&&!e.repeat) {
     if(cameraDistance>0){toast('Scroll back to first-person view to edit');return;}
-    const hit=aim();if(maze.remove(hit.room,hit.face)) {
-      dirty=true;toast('Passage closed on both sides');return;
-    }
+    const hit=aim();
+    try {
+      if(maze.remove(hit.room,hit.face)) {
+        const result=maze.prune(player.room,[player,...balls]);
+        balls.splice(0,balls.length,...result.actors.filter(actor=>actor!==player));
+        lastMark=null;drawing=false;
+        dirty=true;toast(`Passage closed · ${result.removed} disconnected rooms removed`);return;
+      }
+    } catch(error) {toast(error.message);return;}
     toast('Aim at a passage');
   }
 }

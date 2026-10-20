@@ -62,6 +62,18 @@ export class Maze {
     const a=this.rooms[room].cell, b=add(a,normals[face]);
     return [a.join(','),b.join(',')].sort().join('|');
   }
+  thinWalls() {
+    const result=new Set();
+    for(const room of this.rooms)for(let face=0;face<6;face++) {
+      const link=room.links[face];
+      if(!link || link.kind==='straight')continue;
+      const direction=sub(this.rooms[link.target].cell,room.cell);
+      if(dot(direction,normals[face])!==0)continue;
+      const opposite=this.cells.get(add(room.cell,normals[face]).join(','));
+      if(opposite!==undefined&&!this.rooms[opposite].links[face^1])result.add(this.wallKey(room.id,face));
+    }
+    return result;
+  }
   create(roomId,face,kind,up) {
     const room=this.rooms[roomId];
     if(room.links[face]) throw new Error('A passage already exists here · press Delete to remove it');
@@ -76,6 +88,7 @@ export class Maze {
     if(existing!==undefined && this.rooms[existing].links[targetFace]) throw new Error('Another passage occupies the exit');
     const targetKey=[cell.join(','),add(cell,normals[targetFace]).join(',')].sort().join('|');
     if(kind==='straight' && this.walls.has(targetKey)) throw new Error('This wall already contains a folded passage');
+    const previousThinWalls=this.thinWalls(), previousCount=this.rooms.length;
     const target=this.room(cell);
     const q=rotationBetween(n,direction), id=this.nextLink++;
     const keys=[...new Set([wallKey,targetKey])];
@@ -87,20 +100,64 @@ export class Maze {
       id,target:roomId,face,q:inverse(q),kind,keys
     }
     ;
+    if([...this.thinWalls()].some(key=>!previousThinWalls.has(key))) {
+      room.links[face]=null;
+      target.links[targetFace]=null;
+      if(this.rooms.length>previousCount){this.rooms.pop();this.cells.delete(cell.join(','));}
+      this.nextLink--;
+      throw new Error('A folded corner must be open on both sides of the wall');
+    }
     for(const key of keys) this.walls.set(key,(this.walls.get(key)||0)+1);
     return room.links[face];
   }
   remove(roomId,face) {
     const link=this.rooms[roomId].links[face];
     if(!link) return false;
+    const previousThinWalls=this.thinWalls();
+    const reverse=this.rooms[link.target].links[link.face];
     this.rooms[link.target].links[link.face]=null;
     this.rooms[roomId].links[face]=null;
+    if([...this.thinWalls()].some(key=>!previousThinWalls.has(key))) {
+      this.rooms[roomId].links[face]=link;
+      this.rooms[link.target].links[link.face]=reverse;
+      throw new Error('Closing this passage would leave a folded corner open on one side');
+    }
     for(const key of link.keys) {
       const count=this.walls.get(key)-1;
       if(count) this.walls.set(key,count);
       else this.walls.delete(key);
     }
     return true;
+  }
+  prune(anchor,actors=[]) {
+    const reachable=new Set([anchor]), queue=[anchor];
+    for(let i=0;i<queue.length;i++)for(const link of this.rooms[queue[i]].links) {
+      if(!link||reachable.has(link.target))continue;
+      reachable.add(link.target);queue.push(link.target);
+    }
+    const retained=this.rooms.filter(room=>reachable.has(room.id));
+    const ids=new Map(retained.map((room,id)=>[room.id,id]));
+    const offset=retained[0].cell.slice();
+    const removed=this.rooms.length-retained.length;
+    this.rooms=retained;this.cells.clear();this.walls.clear();
+    for(const room of retained) {
+      room.id=ids.get(room.id);room.cell=sub(room.cell,offset);
+      this.cells.set(room.cell.join(','),room.id);
+    }
+    const seen=new Set();
+    for(const room of retained)for(let face=0;face<6;face++) {
+      const link=room.links[face];if(!link)continue;
+      link.target=ids.get(link.target);
+    }
+    for(const room of retained)for(let face=0;face<6;face++) {
+      const link=room.links[face];if(!link)continue;
+      link.keys=[...new Set([this.wallKey(room.id,face),this.wallKey(link.target,link.face)])];
+      if(seen.has(link.id))continue;seen.add(link.id);
+      for(const key of link.keys)this.walls.set(key,(this.walls.get(key)||0)+1);
+    }
+    const surviving=actors.filter(actor=>ids.has(actor.room));
+    for(const actor of surviving)actor.room=ids.get(actor.room);
+    return {removed,actors:surviving};
   }
   transport(room,face,p,vectors=[]) {
     const link=this.rooms[room].links[face];

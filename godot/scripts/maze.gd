@@ -47,6 +47,27 @@ static func boundary_key(cell: Vector3i, face: int) -> String:
 	pair.sort()
 	return "|".join(pair)
 
+func thin_walls() -> Dictionary:
+	var result := {}
+	for source in rooms:
+		for face in range(6):
+			var link = source.links[face]
+			if link == null or link.kind == "straight":
+				continue
+			var direction: Vector3i = rooms[link.target].cell - source.cell
+			if Vector3(direction).dot(NORMALS[face]) != 0:
+				continue
+			var opposite: Vector3i = source.cell + Vector3i(NORMALS[face])
+			if cells.has(opposite) and rooms[cells[opposite]].links[face ^ 1] == null:
+				result[boundary_key(source.cell, face)] = true
+	return result
+
+func introduces_thin_wall(previous: Dictionary) -> bool:
+	for key in thin_walls():
+		if not previous.has(key):
+			return true
+	return false
+
 func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 	last_error = ""
 	if face < 0 or face > 5 or room_id < 0 or room_id >= rooms.size():
@@ -74,6 +95,8 @@ func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 	if kind == "straight" and walls.has(target_key):
 		last_error = "This wall already contains a folded passage"
 		return {}
+	var previous := thin_walls()
+	var previous_count := rooms.size()
 	var target := room(cell)
 	if target.is_empty():
 		return {}
@@ -84,22 +107,88 @@ func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 	var link := {"id": next_link, "target": target.id, "face": target_face, "q": q, "kind": kind, "keys": keys}
 	source.links[face] = link
 	target.links[target_face] = {"id": next_link, "target": room_id, "face": face, "q": q.inverse(), "kind": kind, "keys": keys}
+	if introduces_thin_wall(previous):
+		source.links[face] = null
+		target.links[target_face] = null
+		if rooms.size() > previous_count:
+			rooms.pop_back()
+			cells.erase(cell)
+		last_error = "A folded corner must be open on both sides of the wall"
+		return {}
 	next_link += 1
 	for wall in keys:
 		walls[wall] = walls.get(wall, 0) + 1
 	return link
 
 func remove(room_id: int, face: int) -> bool:
+	last_error = ""
+	if face < 0 or face > 5:
+		return false
 	var link = rooms[room_id].links[face]
 	if link == null:
 		return false
+	var previous := thin_walls()
+	var reverse = rooms[link.target].links[link.face]
 	rooms[link.target].links[link.face] = null
 	rooms[room_id].links[face] = null
+	if introduces_thin_wall(previous):
+		rooms[room_id].links[face] = link
+		rooms[link.target].links[link.face] = reverse
+		last_error = "Closing this passage would leave a folded corner open on one side"
+		return false
 	for key in link.keys:
 		walls[key] -= 1
 		if walls[key] == 0:
 			walls.erase(key)
 	return true
+
+func prune(anchor: int, actors: Array = []) -> Dictionary:
+	var reachable := {anchor: true}
+	var queue := [anchor]
+	var cursor := 0
+	while cursor < queue.size():
+		for link in rooms[queue[cursor]].links:
+			if link == null or reachable.has(link.target):
+				continue
+			reachable[link.target] = true
+			queue.append(link.target)
+		cursor += 1
+	var retained: Array = rooms.filter(func(value): return reachable.has(value.id))
+	var ids := {}
+	for index in range(retained.size()):
+		ids[retained[index].id] = index
+	var offset: Vector3i = retained[0].cell
+	var removed := rooms.size() - retained.size()
+	rooms = retained
+	cells.clear()
+	walls.clear()
+	impacts.clear()
+	for value in rooms:
+		value.id = ids[value.id]
+		value.cell -= offset
+		cells[value.cell] = value.id
+	for value in rooms:
+		for link in value.links:
+			if link != null:
+				link.target = ids[link.target]
+	var seen := {}
+	for value in rooms:
+		for face in range(6):
+			var link = value.links[face]
+			if link == null:
+				continue
+			var key := boundary_key(value.cell, face)
+			var target_key := boundary_key(rooms[link.target].cell, link.face)
+			link.keys = [key] if key == target_key else [key, target_key]
+			if seen.has(link.id):
+				continue
+			seen[link.id] = true
+			for wall in link.keys:
+				walls[wall] = walls.get(wall, 0) + 1
+	var surviving: Array = actors.filter(func(actor): return ids.has(actor.room))
+	for actor in surviving:
+		actor.room = ids[actor.room]
+	return {"removed": removed, "actors": surviving}
 
 func transport(room_id: int, face: int, p: Vector3, vectors: Array = []) -> Dictionary:
 	var link: Dictionary = rooms[room_id].links[face]

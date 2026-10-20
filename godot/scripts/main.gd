@@ -587,8 +587,13 @@ func remove_passage() -> void:
 		return
 	var hit := renderer.aim(maze, player)
 	if maze.remove(hit.room, hit.face):
+		var result := maze.prune(player.room, [player] + balls)
+		balls = result.actors.filter(func(actor): return actor != player)
 		dirty = true
-		show_message("Passage closed on both sides")
+		show_message("Passage closed · %d disconnected rooms removed" % result.removed)
+		return
+	if not maze.last_error.is_empty():
+		show_message(maze.last_error)
 
 func mark_wall() -> void:
 	if renderer.camera_distance > 0:

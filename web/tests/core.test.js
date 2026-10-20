@@ -136,3 +136,48 @@ test('folds preserve free-look pitch relative to the new gravity frame', async (
     assert.ok(Math.abs(dot(after.forward, after.gravityUp) - Math.sin(.7)) < 1e-8);
   }
 });
+
+test('folded corners reject a solid backside and creating one later, atomically',()=>{
+  for(const up of normals)for(let face=0;face<6;face++){
+    if(dot(up,normals[face]))continue;
+    const maze=new Maze();
+    maze.room(normals[face]);
+    assert.throws(()=>maze.create(0,face,'up',up),/both sides/);
+    assert.equal(maze.rooms.length,2);assert.equal(maze.passages,0);assert.equal(maze.nextLink,1);
+    const fresh=new Maze();fresh.create(0,face,'up',up);
+    const approach=fresh.create(0,faceOf(mul(up,-1)),'straight',normals[face]).target;
+    const around=fresh.create(approach,face,'straight',up).target;
+    const before=fresh.rooms.length;
+    assert.throws(()=>fresh.create(around,faceOf(up),'straight',normals[face]),/both sides/);
+    assert.equal(fresh.rooms.length,before);assert.equal(fresh.passages,3);
+  }
+});
+
+test('closing a paired fold is rejected without changing links or wall counts',()=>{
+  const maze=new Maze();maze.create(0,0,'up',[0,1,0]);
+  const opposite=maze.room([1,0,0]);maze.create(opposite.id,1,'down',[0,1,0]);
+  assert.equal(maze.thinWalls().size,0);
+  const counts=[...maze.walls];
+  assert.throws(()=>maze.remove(opposite.id,1),/one side/);
+  assert.equal(maze.passages,2);assert.deepEqual([...maze.walls],counts);
+});
+
+test('pruning removes a detached group and remaps actors, cells and surviving links',()=>{
+  const maze=new Maze();for(let i=0;i<4;i++)maze.create(i,0,'straight',[0,1,0]);
+  maze.remove(1,0);
+  const player={room:4}, kept={room:2}, lost={room:0};
+  const result=maze.prune(player.room,[player,kept,lost]);
+  assert.equal(result.removed,2);assert.deepEqual(result.actors,[player,kept]);
+  assert.equal(player.room,2);assert.equal(kept.room,0);
+  assert.equal(maze.rooms.length,3);assert.equal(maze.passages,2);
+  assert.deepEqual(maze.rooms[0].cell,[0,0,0]);
+  assert.equal(maze.rooms[0].links[0].target,1);
+  assert.equal(maze.cells.get('2,0,0'),2);assert.equal(maze.walls.size,2);
+  maze.remove(0,0);assert.equal(maze.prune(player.room,[player]).removed,1);
+});
+
+test('removing an edge in a loop retains every room',()=>{
+  const maze=new Maze();let room=0;
+  for(const face of [0,4,1,5])room=maze.create(room,face,'straight',[0,1,0]).target;
+  maze.remove(0,0);assert.equal(maze.prune(0).removed,0);assert.equal(maze.passages,3);
+});

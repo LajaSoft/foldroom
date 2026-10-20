@@ -34,7 +34,7 @@ static func export_json(maze: FoldMaze, player: Dictionary, balls: Array, marks:
 				continue
 			seen[link.id] = true
 			passages.append({"a": [room.id, face], "b": [link.target, link.face], "kind": link.kind})
-	return JSON.stringify(encode({"format": "foldroom", "version": 1, "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}))
+	return JSON.stringify(encode({"format": "foldroom", "version": 1, "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
 
 func reject(message: String) -> Dictionary:
 	error = message

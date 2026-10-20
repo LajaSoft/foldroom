@@ -83,6 +83,7 @@ func run() -> void:
 	test_contacts(reference.contact)
 	test_state(reference.state)
 	test_topology()
+	test_corner_rules_and_pruning()
 	test_stability()
 	test_gyro()
 	test_controls()
@@ -177,6 +178,7 @@ func test_state(source: String) -> void:
 	if result.is_empty():
 		return
 	var exported := State.export_json(result.maze, result.player, result.balls, result.marks)
+	check(exported.contains("\n  \"rooms\": ["), "Native export uses indented lines")
 	var second := state.import_json(exported)
 	check(not second.is_empty(), "Native JSON reimports: " + state.error)
 	check(second.maze.passage_count() == result.maze.passage_count(), "JSON preserves passage count")
@@ -475,3 +477,40 @@ func test_impact_vibration() -> void:
 	model.impact_strength = 0
 	model.impact(8, 1)
 	check(model.compute(0, 0, 0, 0, 1, 0, 0.01) == 0, "Impact setting can disable vibration")
+
+func test_corner_rules_and_pruning() -> void:
+	for up in Maze.NORMALS:
+		for face in range(6):
+			if up.dot(Maze.NORMALS[face]) != 0:
+				continue
+			var maze := Maze.new()
+			maze.room(Vector3i(Maze.NORMALS[face]))
+			check(maze.create(0, face, "up", up).is_empty(), "Solid backside rejects fold")
+			check(maze.rooms.size() == 2 and maze.passage_count() == 0 and maze.next_link == 1, "Rejected fold leaves topology intact")
+			maze = Maze.new()
+			maze.create(0, face, "up", up)
+			var approach: Dictionary = maze.create(0, Maze.face_of(-up), "straight", Maze.NORMALS[face])
+			var around: Dictionary = maze.create(approach.target, face, "straight", up)
+			check(maze.create(around.target, Maze.face_of(up), "straight", Maze.NORMALS[face]).is_empty(), "Adding a solid backside is rejected")
+			check(maze.rooms.size() == 4 and maze.passage_count() == 3, "Rejected backside leaves no orphan")
+	var maze := Maze.new()
+	maze.create(0, 0, "up", Vector3.UP)
+	var opposite := maze.room(Vector3i.RIGHT)
+	maze.create(opposite.id, 1, "down", Vector3.UP)
+	var counts := maze.walls.duplicate()
+	check(not maze.remove(opposite.id, 1), "Cannot close one side of paired fold")
+	check(maze.passage_count() == 2 and maze.walls == counts, "Rejected deletion is atomic")
+	maze = Maze.new()
+	for index in range(4):
+		maze.create(index, 0, "straight", Vector3.UP)
+	maze.remove(1, 0)
+	var actor := {"room": 4}
+	var ball := {"room": 2}
+	var lost := {"room": 0}
+	var result := maze.prune(actor.room, [actor, ball, lost])
+	check(result.removed == 2 and result.actors.size() == 2, "Prunes detached group and its actors")
+	check(actor.room == 2 and ball.room == 0, "Retained actors remapped")
+	check(maze.rooms[0].cell == Vector3i.ZERO and maze.rooms[0].links[0].target == 1, "Origin and links remapped")
+	check(maze.passage_count() == 2 and maze.walls.size() == 2, "Wall counts rebuilt")
+	maze.remove(0, 0)
+	check(maze.prune(actor.room, [actor]).removed == 1, "Prunes a single detached room")
