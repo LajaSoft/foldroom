@@ -4,6 +4,12 @@ extends RefCounted
 const HALF := 3.0
 const MAX_ROOMS := 10000
 const NORMALS := [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
+const Pipes = preload("res://scripts/pipe_catalog.gd")
+const TUBE_RADIUS := Pipes.RADIUS
+var tubes := false
+var topology_revision := 0
+var pipe_revision := -1
+var pipe_masks := PackedByteArray()
 var rooms: Array = []
 var cells: Dictionary = {}
 var walls: Dictionary = {}
@@ -37,6 +43,7 @@ func room(cell: Vector3i) -> Dictionary:
 	var value := {"id": rooms.size(), "cell": cell, "links": [null, null, null, null, null, null], "markers": [-1, -1, -1, -1, -1, -1]}
 	cells[cell] = value.id
 	rooms.append(value)
+	topology_revision += 1
 	return value
 
 static func cell_key(cell: Vector3i) -> String:
@@ -115,6 +122,7 @@ func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 			cells.erase(cell)
 		last_error = "A folded corner must be open on both sides of the wall"
 		return {}
+	topology_revision += 1
 	next_link += 1
 	for wall in keys:
 		walls[wall] = walls.get(wall, 0) + 1
@@ -136,6 +144,7 @@ func remove(room_id: int, face: int) -> bool:
 		rooms[link.target].links[link.face] = reverse
 		last_error = "Closing this passage would leave a folded corner open on one side"
 		return false
+	topology_revision += 1
 	for key in link.keys:
 		walls[key] -= 1
 		if walls[key] == 0:
@@ -143,6 +152,7 @@ func remove(room_id: int, face: int) -> bool:
 	return true
 
 func prune(anchor: int, actors: Array = []) -> Dictionary:
+	topology_revision += 1
 	var reachable := {anchor: true}
 	var queue := [anchor]
 	var cursor := 0
@@ -224,3 +234,85 @@ static func face_uv(p: Vector3, face: int) -> Vector2:
 	if face < 4:
 		return Vector2(p.x, p.z) / 6.0 + Vector2.ONE * 0.5
 	return Vector2(p.x, p.y) / 6.0 + Vector2.ONE * 0.5
+
+# The local six-face mask selects one of ten prebuilt fitting families.
+# Portal targets, kinds and rotations do not participate in surface evaluation.
+func tube_shape_mask(room_id: int) -> int:
+	if pipe_revision != topology_revision:
+		pipe_masks.resize(rooms.size())
+		for source in rooms:
+			var mask := 0
+			for face in range(6):
+				if source.links[face] != null:
+					mask |= 1 << face
+			pipe_masks[source.id] = mask
+		pipe_revision = topology_revision
+	return pipe_masks[room_id]
+
+func tube_clearance(room_id: int, p: Vector3) -> float:
+	return Pipes.clearance(tube_shape_mask(room_id), p)
+
+func rescale_actor(actor: Dictionary, radius: float) -> void:
+	if not actor.has("radius") or absf(actor.radius - radius) < 0.00001:
+		return
+	var factor: float = radius / actor.radius
+	var centerline := Pipes.spine(tube_shape_mask(actor.room), actor.p)
+	actor.p = centerline + (actor.p - centerline) * factor
+	actor.velocity *= factor
+	actor.radius = radius
+
+func tube_sample(room_id: int, p: Vector3) -> Dictionary:
+	var gradient := Vector3.ZERO
+	for axis in range(3):
+		var offset := Vector3.ZERO
+		offset[axis] = 0.015
+		gradient[axis] = (tube_clearance(room_id, p - offset) - tube_clearance(room_id, p + offset)) / 0.03
+	return {"clearance": tube_clearance(room_id, p), "normal": gradient.normalized()}
+
+# The fillet field is not an exact signed distance. Test the sphere's support
+# against the actual surface instead of treating center clearance as its radius.
+func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
+	var center := tube_sample(room_id, p)
+	var direction: Vector3 = center.normal
+	var gap := tube_clearance(room_id, p + direction * radius)
+	for axis in NORMALS:
+		var candidate := tube_clearance(room_id, p + axis * radius)
+		if candidate < gap:
+			gap = candidate
+			direction = axis
+	for iteration in range(5):
+		var surface := tube_sample(room_id, p + direction * radius)
+		var next: Vector3 = (direction + surface.normal).normalized()
+		var candidate := tube_clearance(room_id, p + next * radius)
+		if candidate >= gap:
+			break
+		gap = candidate
+		direction = next
+	var normal := tube_sample(room_id, p + direction * radius)
+	return {"clearance": radius + gap, "normal": normal.normal}
+
+func constrain_actor(actor: Dictionary) -> void:
+	if not tubes:
+		return
+	rescale_actor(actor, Pipes.BALL_RADIUS)
+	# Walk clearance encloses the body and the raised eye.
+	var radius: float = actor.get("radius", 1.0)
+	for iteration in range(8):
+		var sample := tube_sphere_sample(actor.room, actor.p, radius)
+		if sample.clearance >= radius + 0.001:
+			return
+		actor.p -= sample.normal * (radius + 0.002 - sample.clearance)
+		var outward: float = actor.velocity.dot(sample.normal)
+		if outward > 0:
+			actor.velocity -= sample.normal * outward
+
+func set_tubes(enabled: bool, actors: Array) -> void:
+	tubes = enabled
+	for actor in actors:
+		rescale_actor(actor, Pipes.BALL_RADIUS if enabled else 0.5)
+		for axis in range(3):
+			var face := axis * 2 + int(actor.p[axis] < 0)
+			if rooms[actor.room].links[face] == null:
+				actor.p[axis] = clampf(actor.p[axis], -HALF + actor.get("radius", 1.0), HALF - actor.get("radius", 1.0))
+		constrain_actor(actor)
+	impacts.clear()

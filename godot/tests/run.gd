@@ -82,6 +82,20 @@ func run() -> void:
 	test_powered_balls(reference.balls)
 	test_contacts(reference.contact)
 	test_state(reference.state)
+	test_tubes(reference.transport)
+	test_tube_fillets()
+	test_pipe_catalog_classes()
+	test_pipe_scale_migration()
+	test_tube_control()
+	test_tube_sphere_support_and_motor()
+	test_straight_tube_radius()
+	test_tube_rollback_skid()
+	test_round_tube_junctions()
+	test_hall_corner_clearance()
+	test_open_cycle_corners()
+	test_shared_hall_support_planes()
+	test_shared_hall_has_no_inner_rim()
+	test_pipe_hall_flare()
 	test_topology()
 	test_corner_rules_and_pruning()
 	test_stability()
@@ -514,3 +528,320 @@ func test_corner_rules_and_pruning() -> void:
 	check(maze.passage_count() == 2 and maze.walls.size() == 2, "Wall counts rebuilt")
 	maze.remove(0, 0)
 	check(maze.prune(actor.room, [actor]).removed == 1, "Prunes a single detached room")
+
+func test_tubes(cases: Array) -> void:
+	for c in cases:
+		var maze := Maze.new()
+		# Reference fixtures cover all orientations of both portal mouths.
+		var face: int = int(c.get("face", 0))
+		var link := maze.create(0, face, c.kind, State.vec(c.up))
+		check(not link.is_empty(), "Tube mouth can be created")
+		maze.tubes = true
+		var mouth: Vector3 = Maze.NORMALS[face] * 3.0
+		check(absf(maze.tube_sample(0, mouth).clearance - Maze.TUBE_RADIUS) < 0.00001, "Tube mouth centered")
+		for offset in [Vector3.ZERO, Maze.NORMALS[(int(face / 2) + 1) % 3 * 2] * 1.9]:
+			var entry: Vector3 = mouth + offset
+			var moved := maze.transport(0, face, entry)
+			check(absf(maze.tube_sample(0, entry).clearance - maze.tube_sample(moved.room, moved.p).clearance) < 0.00001, "Round mouths match across straight/up/down portal")
+		var actor := Motion.initial_player()
+		actor.p = Vector3(2.49, -2.49, 2.49)
+		actor.velocity = actor.p.normalized() * 10.0
+		maze.set_tubes(true, [actor])
+		check(maze.tube_sphere_sample(0, actor.p, actor.radius).clearance >= actor.radius, "Switch keeps sphere inside tube")
+		for i in range(100):
+			Motion.move_ball(maze, actor, 0.02)
+			check(maze.tube_sphere_sample(actor.room, actor.p, actor.radius).clearance >= actor.radius - 0.003, "Tube bounds during motion")
+		var saved := State.export_json(maze, actor, [], [])
+		var restored := State.new().import_json(saved)
+		check(not restored.is_empty() and restored.maze.tubes, "Tube geometry survives JSON round trip")
+
+func test_tube_fillets() -> void:
+	# A right-angle junction used to switch normals abruptly at x == z.
+	var maze := Maze.new()
+	maze.create(0, 0, "straight", Vector3.UP)
+	maze.create(0, 4, "straight", Vector3.UP)
+	maze.tubes = true
+	var corner := Vector3(2.0, 0, 2.0)
+	var before := maze.tube_sample(0, corner + Vector3(0.001, 0, -0.001))
+	var after := maze.tube_sample(0, corner + Vector3(-0.001, 0, 0.001))
+	check(before.normal.dot(after.normal) > 0.99, "Fillet normals stay continuous across old sharp junction")
+	check(maze.tube_clearance(0, corner) > 0.02, "Fillet opens the former sharp corner")
+	for axis in [0, 2]:
+		var mouth := Vector3.ZERO
+		mouth[axis] = 3.0
+		var edge := mouth + Vector3.UP * Maze.TUBE_RADIUS
+		check(absf(maze.tube_clearance(0, edge)) < 0.012, "Fillets preserve circular portal edge")
+	var actor := Motion.initial_player()
+	actor.p = Vector3(2.49, 2.49, 2.49)
+	actor.velocity = Vector3.ONE * 25
+	maze.set_tubes(true, [actor])
+	check(maze.tube_sphere_sample(0, actor.p, actor.radius).clearance >= actor.radius, "Iterative projection keeps actor within rounded junction")
+
+func test_tube_control() -> void:
+	var maze := Maze.new()
+	maze.tubes = true
+	var player := Motion.initial_player()
+	maze.constrain_actor(player)
+	var quiet := player.duplicate(true)
+	for i in range(120):
+		player.velocity = Vector3(0.15 * sin(i), 0.03, 0.15 * cos(i))
+		Motion.update_tube_camera(maze, player, 1.0 / 120)
+		Motion.update_tube_camera(maze, quiet, 1.0 / 120)
+	check(player.cameraForward.dot(quiet.cameraForward) > 0.999, "Low-speed tube rebounds do not change heading")
+	player.velocity = Vector3.ZERO
+	var start: Vector3 = player.p
+	for i in range(120):
+		Motion.drive(maze, player, 1.0 / 120, 1, 0)
+		Motion.update_tube_camera(maze, player, 1.0 / 120)
+	check(player.p.distance_to(start) > 0.5, "Tube throttle escapes rest and makes progress")
+	check(absf(player.cameraForward.dot(player.cameraUp)) < 0.00001, "Tube surface camera stays orthogonal")
+	var slow := Motion.initial_player()
+	var fast := slow.duplicate(true)
+	slow.velocity = Vector3.FORWARD * 0.11
+	fast.velocity = Vector3.FORWARD * 0.13
+	Motion.steer_tube(slow, 0.5, 0.02)
+	Motion.steer_tube(fast, 0.5, 0.02)
+	check(slow.cameraForward.distance_to(fast.cameraForward) < 0.00001, "Tube steering has no low-speed threshold discontinuity")
+
+func test_tube_sphere_support_and_motor() -> void:
+	for kind in ["straight", "up", "down"]:
+		var maze := Maze.new()
+		maze.create(0, 0, kind, Vector3.UP)
+		maze.create(0, 4, "straight", Vector3.UP)
+		maze.tubes = true
+		for position in [Vector3(2.4, -2.0, 2.4), Vector3(0.6, -2.3, 0.4), Vector3(2.6, -1.5, 0.1)]:
+			var actor := Motion.create_ball(0)
+			actor.p = position
+			maze.constrain_actor(actor)
+			var minimum := INF
+			for i in range(256):
+				var y := 1.0 - 2.0 * (i + 0.5) / 256.0
+				var angle := i * 2.3999632297
+				var radial := sqrt(1.0 - y * y)
+				var direction := Vector3(cos(angle) * radial, y, sin(angle) * radial)
+				minimum = minf(minimum, maze.tube_clearance(actor.room, actor.p + direction * actor.radius))
+			check(minimum > -0.003, "Full sphere clears rendered fillet surface " + kind)
+		var ball := Motion.create_ball(0)
+		maze.constrain_actor(ball)
+		var escaped := false
+		for step in range(1200):
+			Motion.move_ball(maze, ball, 1.0 / 120)
+			if ball.room != 0:
+				escaped = true
+				break
+		check(escaped, "Powered tube sphere escapes bowl through " + kind + " exit")
+		var airborne := Motion.create_ball(0)
+		airborne.radius = Maze.Pipes.BALL_RADIUS
+		airborne.p = Maze.Pipes.spine(maze.tube_shape_mask(0), Vector3.ZERO)
+		var velocity: Vector3 = airborne.velocity
+		Motion.drive_tube_motor(maze, airborne, 0.05)
+		near_vec(airborne.velocity, [velocity.x, velocity.y, velocity.z], "Tube motor needs surface traction", 0.00001)
+
+func test_straight_tube_radius() -> void:
+	for axis in range(3):
+		var maze := Maze.new()
+		var up: Vector3 = Maze.NORMALS[((axis + 1) % 3) * 2]
+		maze.create(0, axis * 2, "straight", up)
+		maze.create(0, axis * 2 + 1, "straight", up)
+		maze.tubes = true
+		for step in range(25):
+			for sector in range(16):
+				var angle := TAU * sector / 16.0
+				var p := Vector3.ZERO
+				p[axis] = -3.0 + step * 0.25
+				p[(axis + 1) % 3] = cos(angle) * Maze.TUBE_RADIUS
+				p[(axis + 2) % 3] = sin(angle) * Maze.TUBE_RADIUS
+				check(absf(maze.tube_clearance(0, p)) < 0.012, "Straight tube radius stays constant across room and mouths")
+				var sample := maze.tube_sample(0, p)
+				check(absf(sample.normal[axis]) < 0.0001, "Straight tube normal has no axial component")
+
+func test_tube_rollback_skid() -> void:
+	var normal := Vector3(0.6, -0.8, 0)
+	var uphill := Vector3(0.8, 0.6, 0)
+	var ball := Motion.create_ball(0)
+	ball.velocity = uphill * 2.0
+	Motion.tube_rollback_direction(ball, uphill, normal, 0.01)
+	check(ball.get("tubeSkidCount", 0) == 0, "NPC climb alone produces no skid")
+	ball.velocity = -uphill * 2.0
+	var speed: float = ball.velocity.length()
+	var into_wall: float = ball.velocity.dot(normal)
+	var heading := Motion.tube_rollback_direction(ball, uphill, normal, 0.01)
+	check(absf(ball.velocity.z) > 0.1 and absf(heading.z) > 0.05, "NPC rollback changes the swing plane and briefly biases traction")
+	check(absf(ball.velocity.length() - speed) < 0.00001, "Rollback skid adds no kinetic energy")
+	check(absf(ball.velocity.dot(normal) - into_wall) < 0.00001, "Rollback skid adds no velocity into wall")
+	for step in range(20):
+		Motion.tube_rollback_direction(ball, uphill, normal, 0.01)
+	check(ball.tubeSkidCount == 1, "One rollback cannot trigger a skid each physics step")
+	for step in range(500):
+		heading = Motion.tube_rollback_direction(ball, uphill, normal, 0.01)
+	check(heading.dot(uphill) > 0.99999, "Skid steering bias decays after rollback")
+	var player := Motion.initial_player()
+	player.velocity = uphill * 2
+	Motion.tube_rollback_direction(player, uphill, normal, 0.01)
+	player.velocity = -uphill * 2
+	var before: Vector3 = player.velocity
+	heading = Motion.tube_rollback_direction(player, uphill, normal, 0.01)
+	check(player.velocity == before and heading == uphill and not player.has("tubeSkidRoom"), "Player receives no automatic rollback skid")
+	var downhill := Motion.create_ball(0)
+	downhill.velocity = -uphill * 2
+	Motion.tube_rollback_direction(downhill, uphill, normal, 0.01)
+	check(downhill.get("tubeSkidCount", 0) == 0, "Descent without a previous climb does not trigger skid")
+
+func test_round_tube_junctions() -> void:
+	var maze := Maze.new()
+	for face in [0, 1, 4, 5]:
+		maze.create(0, face, "straight", Vector3.UP)
+	maze.tubes = true
+	for x in range(-4, 5):
+		for z in range(-4, 5):
+			var point := Vector3(x * 0.3, 0, z * 0.3)
+			check(maze.tube_clearance(0, point) > 0.0, "Four-way fitting has one connected central volume")
+			check(maze.tube_sample(0, point + Vector3.DOWN * Maze.TUBE_RADIUS).normal.is_finite(), "Four-way fitting surface normals remain finite")
+	var elbow := Maze.new()
+	elbow.create(0, 1, "straight", Vector3.UP)
+	elbow.create(0, 5, "straight", Vector3.UP)
+	elbow.tubes = true
+	check(elbow.tube_clearance(0, Vector3(-3, 0, -3)) < 0.0, "Inner elbow corner cannot form a false opening")
+	for step in range(1, 16):
+		var angle := PI * 0.5 * step / 16.0
+		var centerline := Vector3(-3, 0, -3) + Vector3(cos(angle), 0, sin(angle)) * 3.0
+		var radial := Vector3(cos(angle), 0, sin(angle))
+		for sector in range(16):
+			var phase := TAU * sector / 16.0
+			var point := centerline + (radial * cos(phase) + Vector3.UP * sin(phase)) * Maze.TUBE_RADIUS
+			check(absf(elbow.tube_clearance(0, point)) < 0.012, "Bent pipe has a circular section of constant radius along the arc")
+		check(absf(elbow.tube_clearance(0, centerline + Vector3.DOWN * Maze.TUBE_RADIUS)) < 0.012, "Horizontal elbow floor keeps constant height along its bend")
+	var ball := Motion.create_ball(0)
+	ball.up = Vector3.FORWARD
+	ball.motorAxis = Vector3.LEFT
+	ball.omega = Vector3(-12.6767, -0.004, -0.00026)
+	ball.p = Vector3(0.000789, -1.146737, 1.449232)
+	ball.velocity = Vector3(0.000121, 0.424947, 9.27245)
+	elbow.constrain_actor(ball)
+	var escaped := false
+	for step in range(3600):
+		Motion.move_ball(elbow, ball, 1.0 / 120)
+		if ball.room != 0:
+			escaped = true
+			break
+	check(escaped, "NPC from saved Room 02 leaves the elbow instead of repeating its swing")
+
+func test_hall_corner_clearance() -> void:
+	# Exact mouth arrangements from Quick Save rooms 13 and 14.
+	for faces in [[0, 2, 3], [0, 2, 4]]:
+		var maze := Maze.new()
+		for face in faces:
+			var up: Vector3 = Maze.NORMALS[((int(face / 2) + 1) % 3) * 2]
+			maze.create(0, face, "straight", up)
+		maze.tubes = true
+		for first in range(faces.size()):
+			for second in range(first + 1, faces.size()):
+				var a: Vector3 = Maze.NORMALS[faces[first]]
+				var b: Vector3 = Maze.NORMALS[faces[second]]
+				if absf(a.dot(b)) > 0.5:
+					continue
+				for step in range(1, 16):
+					var angle := PI * 0.5 * step / 16.0
+					var centerline := (a + b) * 3.0 - (a * cos(angle) + b * sin(angle)) * 3.0
+					check(maze.tube_sphere_sample(0, centerline, Maze.Pipes.BALL_RADIUS).clearance > Maze.Pipes.BALL_RADIUS, "Saved hall gives every pair of mouths an unobstructed rounded turn")
+				var removed_rib := (a + b) * (3.0 - 3.0 / sqrt(2.0))
+				check(maze.tube_clearance(0, removed_rib) > 0.0, "Saved hall corner rib is removed from physical geometry")
+
+func test_open_cycle_corners() -> void:
+	var maze := Maze.new()
+	var east := maze.create(0, 0, "straight", Vector3.UP)
+	var north := maze.create(0, 2, "straight", Vector3.BACK)
+	maze.create(east.target, 2, "straight", Vector3.BACK)
+	var before := maze.tube_shape_mask(0)
+	maze.create(north.target, 0, "straight", Vector3.UP)
+	maze.tubes = true
+	check(maze.tube_shape_mask(0) == before, "Adding a remote cycle cannot deform a local fitting")
+	for room in maze.rooms:
+		check(maze.tube_clearance(room.id, Vector3.ZERO) > 0, "Each cycle fitting has an open center")
+	var old := maze.tube_shape_mask(north.target)
+	maze.remove(north.target, 0)
+	check(maze.tube_shape_mask(north.target) != old, "Removing an opening invalidates the local shape cache")
+
+func test_shared_hall_support_planes() -> void:
+	var maze := Maze.new()
+	var east := maze.create(0, 0, "straight", Vector3.UP)
+	maze.create(0, 2, "straight", Vector3.BACK)
+	maze.create(east.target, 4, "straight", Vector3.UP)
+	maze.tubes = true
+	for y in range(-12, 13):
+		for z in range(-12, 13):
+			var point := Vector3(3, y * 0.15, z * 0.15)
+			var other := maze.transport(0, 0, point)
+			check(absf(maze.tube_clearance(0, point) - maze.tube_clearance(other.room, other.p)) < 0.0001, "Different branches cannot introduce a step across a shared collar")
+
+func test_shared_hall_has_no_inner_rim() -> void:
+	for mask in [7, 15, 21, 23, 31, 63]:
+		var maze := Maze.new()
+		for face in range(6):
+			if mask & (1 << face):
+				maze.create(0, face, "straight", Maze.NORMALS[((int(face / 2) + 1) % 3) * 2])
+		for face in range(6):
+			if not mask & (1 << face):
+				continue
+			var normal: Vector3 = Maze.NORMALS[face]
+			for step in range(10):
+				var point := normal * (2.1 + step * 0.1)
+				check(maze.tube_clearance(0, point) >= Maze.TUBE_RADIUS - 0.012, "Round straight collars contain no inner ring or raised threshold")
+
+func test_pipe_hall_flare() -> void:
+	var maze := Maze.new()
+	var pipe := maze.create(0, 4, "straight", Vector3.UP)
+	maze.create(0, 5, "straight", Vector3.UP)
+	maze.create(0, 0, "straight", Vector3.UP)
+	maze.tubes = true
+	for x in range(-10, 11):
+		for y in range(-10, 11):
+			var mouth := Vector3(x * 0.18, y * 0.18, 3)
+			var other := maze.transport(0, 4, mouth)
+			check(absf(maze.tube_clearance(0, mouth) - maze.tube_clearance(pipe.target, other.p)) < 0.0001, "Pipe and tee have the same aperture, independent of adjoining hall branches")
+
+
+func test_pipe_catalog_classes() -> void:
+	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://assets/pipes/catalog.json"))
+	check(manifest.classes.size() == 10 and manifest.masks.size() == 64, "All 64 masks reduce to ten symmetry classes including isolated room")
+	for mask in range(64):
+		var maze := Maze.new()
+		for face in range(6):
+			if mask & (1 << face):
+				maze.create(0, face, "straight", Maze.NORMALS[((int(face / 2) + 1) % 3) * 2])
+		maze.tubes = true
+		check(maze.tube_shape_mask(0) == mask, "Local opening mask selects the fitting")
+		for direction in [Vector3(1,1,1).normalized(), Vector3(1,-1,1).normalized(), Vector3(-1,1,-1).normalized()]:
+			var actor := Motion.initial_player()
+			actor.p = direction * 2.6
+			actor.velocity = direction * 4
+			maze.constrain_actor(actor)
+			check(actor.p.is_finite() and absf(actor.radius - 0.33) < 0.00001, "All fitting types accept smaller spheres")
+			check(maze.tube_sphere_sample(0, actor.p, actor.radius).clearance >= actor.radius - 0.01, "Sphere support stays inside baked fitting")
+
+func test_pipe_scale_migration() -> void:
+	var maze := Maze.new()
+	maze.create(0, 4, "straight", Vector3.UP)
+	maze.create(0, 5, "straight", Vector3.UP)
+	var ball := Motion.initial_player()
+	ball.p = Vector3(0, -2, 2.8)
+	ball.velocity = Vector3(0, 0, 6)
+	maze.set_tubes(true, [ball])
+	check(absf(ball.radius - 0.33) < 0.00001, "Tube sphere radius scales to 0.33")
+	check(absf(ball.p.z - 2.8) < 0.00001 and absf(ball.p.y + 1.32) < 0.015, "Scaling preserves axial progress and scales transverse position")
+	check(absf(ball.velocity.z - 3.96) < 0.00001, "Linear velocity scales proportionally")
+	var saved := State.export_json(maze, ball, [], [])
+	var importer := State.new()
+	var imported := importer.import_json(saved)
+	check(not imported.is_empty(), "Small sphere JSON round trip: " + importer.error)
+	if not imported.is_empty():
+		near_vec(imported.player.p, [ball.p.x, ball.p.y, ball.p.z], "New saves are not rescaled twice", 0.001)
+	maze.set_tubes(false, [ball])
+	check(absf(ball.radius - 0.5) < 0.00001 and absf(ball.p.z - 2.8) < 0.00001, "Room mode restores radius without moving along the passage")
+	var legacy := Motion.initial_player()
+	legacy.p = Vector3(0, -2, 2.8)
+	maze.tubes = true
+	var migrated := State.new().import_json(State.export_json(maze, legacy, [], []))
+	check(not migrated.is_empty(), "Legacy tube quick saves remain readable")
+	if not migrated.is_empty():
+		check(absf(migrated.player.radius - 0.33) < 0.00001 and absf(migrated.player.p.z - 2.8) < 0.00001, "Legacy saves migrate around the pipe spine")

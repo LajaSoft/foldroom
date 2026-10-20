@@ -6,6 +6,9 @@ uniform vec3 forward;
 uniform vec3 up;
 uniform vec3 right;
 uniform int roomId;
+uniform bool tubes = false;
+uniform sampler2D room_shapes : filter_nearest, repeat_disable;
+uniform highp sampler2D pipe_catalog : filter_linear, repeat_disable;
 uniform sampler2D topology : filter_nearest, repeat_disable;
 uniform sampler2D markings : filter_linear, repeat_disable;
 uniform float time;
@@ -17,6 +20,20 @@ vec3 normalOf(int f){if(f==0)return vec3(1,0,0);if(f==1)return vec3(-1,0,0);if(f
 vec3 turn(vec3 p,vec4 q){return p+2.*cross(q.xyz,cross(q.xyz,p)+q.w*p);}
 vec2 uvOf(vec3 p,int f){if(f<2)return p.zy/6.+.5;if(f<4)return p.xz/6.+.5;return p.xy/6.+.5;}
 vec3 colorOf(int f){if(f==0)return vec3(.92,.41,.38);if(f==1)return vec3(.33,.78,.69);if(f==2)return vec3(.85,.83,.73);if(f==3)return vec3(.39,.55,.88);if(f==4)return vec3(.69,.51,.83);return vec3(.93,.67,.38);}
+// Two bilinear reads interpolate one precomputed local fitting. No room
+// neighbors, implicit unions, powers or portal transports run in this field.
+float pipeSlice(int mask,int z,vec2 xy){
+ int slice=mask*49+z;
+ vec2 pixel=vec2(float(slice%64),float(slice/64))*49.+xy+.5;
+ return texture(pipe_catalog,pixel/vec2(3136.,2401.)).r;
+}
+float tubeClearance(int room, vec3 p){
+ int mask=int(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).r+.5);
+ vec3 grid=clamp((p+vec3(3.6))/7.2*48.,vec3(0.),vec3(47.99999));
+ int z=int(floor(grid.z));
+ return mix(pipeSlice(mask,z,grid.xy),pipeSlice(mask,z+1,grid.xy),fract(grid.z));
+}
+
 void fragment(){
  vec2 screen=((vec2(UV.x,1.0-UV.y)*resolution)*2.-resolution)/resolution.y;
  vec3 ray=normalize(forward+right*screen.x*.72+up*screen.y*.72);
@@ -27,6 +44,18 @@ void fragment(){
    float travel=min(t.x,min(t.y,t.z));
    int axis=t.x<=t.y&&t.x<=t.z?0:(t.y<=t.z?1:2);
    int face=axis*2+(ray[axis]<0.?1:0);
+   bool tubeWall=false;
+   if(tubes){
+    float along=0.;
+    for(int step=0;step<256;step++){
+     float gap=tubeClearance(room,p+ray*along);
+     if(gap<.001){tubeWall=true;travel=along;break;}
+     along+=gap*.5;
+     if(along>=travel)break;
+     // Exhausted grazing rays terminate on the near surface, never behind it.
+     if(step==255){tubeWall=true;travel=along;}
+    }
+   }
    int nearestBall=-1;float nearestDistance=travel;
    for(int ball=0;ball<128;ball++){
      if(ball>=ballCount)break;
@@ -64,12 +93,27 @@ void fragment(){
    vec3 hit=p+ray*max(0.,travel);distance+=max(0.,travel);
    vec2 uv=uvOf(hit,face);vec2 edge=min(uv,1.-uv);float border=min(edge.x,edge.y);
    vec4 data=roomData(room,face*2);
-   if(data.x>.5 && border>.008){
+   if(!tubeWall && data.x>.5 && (tubes || border>.008)){
      rim+=exp(-border*150.)*.2;
      vec4 q=roomData(room,face*2+1);
      int destFace=int(data.y+.5);
-     ray=turn(ray,q);p=turn(hit-normalOf(face)*3.,q)+normalOf(destFace)*3.+ray*.001;
+     ray=turn(ray,q);p=turn(hit-normalOf(face)*3.,q)+normalOf(destFace)*3.+ray*(tubes?.00001:.001);
      room=int(data.x+.5)-1;continue;
+   }
+   if(tubeWall){
+     vec3 e=vec3(.03,0.,0.);
+     vec3 n=-normalize(vec3(tubeClearance(room,hit+e.xyy)-tubeClearance(room,hit-e.xyy),tubeClearance(room,hit+e.yxy)-tubeClearance(room,hit-e.yxy),tubeClearance(room,hit+e.yyx)-tubeClearance(room,hit-e.yyx)));
+     float light=.45+.4*abs(dot(n,normalize(vec3(.4,.8,.3))));
+     vec3 grid=abs(fract(hit*2.)-.5);
+     vec3 width=max(fwidth(hit*2.),vec3(.002));
+     vec3 lines=vec3(1.)-smoothstep(vec3(.015),vec3(.015)+width,grid);
+     float line=max(lines.x,max(lines.y,lines.z));
+     int panelAxis=abs(n.x)>=abs(n.y)&&abs(n.x)>=abs(n.z)?0:(abs(n.y)>=abs(n.z)?1:2);
+     int panelFace=panelAxis*2+(n[panelAxis]<0.?1:0);
+     vec3 panelColor=colorOf(panelFace);
+     color=panelColor*light*(1.-line*.3);
+     color=mix(color,vec3(.07,.105,.12),1.-exp(-distance*.012));
+     break;
    }
    vec3 base=colorOf(face);
    vec2 grid=abs(fract(uv*12.-.5)-.5)/max(fwidth(uv*12.),vec2(.005));

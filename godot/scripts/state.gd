@@ -34,7 +34,7 @@ static func export_json(maze: FoldMaze, player: Dictionary, balls: Array, marks:
 				continue
 			seen[link.id] = true
 			passages.append({"a": [room.id, face], "b": [link.target, link.face], "kind": link.kind})
-	return JSON.stringify(encode({"format": "foldroom", "version": 1, "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
+	return JSON.stringify(encode({"format": "foldroom", "version": 1, "geometry": "tubes" if maze.tubes else "rooms", "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
 
 func reject(message: String) -> Dictionary:
 	error = message
@@ -72,13 +72,13 @@ func actor(source: Variant, count: int, ball: bool, controlled: bool = false) ->
 		return reject("Invalid player position or velocity")
 	var result := {"room": int(source.room), "p": vec(source.p) if position_ok else up * -2.49, "up": up, "velocity": vec(source.velocity) if position_ok and velocity_ok else Vector3.ZERO}
 	if ball:
-		if source.get("radius") != 0.5 or not unit(source.get("motorAxis")) or not valid_vector(source.get("spin"), 4):
+		if not source.get("radius") in [0.5, Maze.Pipes.BALL_RADIUS] or not unit(source.get("motorAxis")) or not valid_vector(source.get("spin"), 4):
 			return reject("Invalid ball")
 		var spin := Quaternion(source.spin[0], source.spin[1], source.spin[2], source.spin[3])
 		if absf(spin.length() - 1.0) > 1e-5:
 			return reject("Invalid ball orientation")
 		var omega_ok := valid_vector(source.get("omega"), 3) and vec(source.omega).length() <= Motion.MAX_SPIN
-		result.merge({"radius": 0.5, "omega": vec(source.omega) if omega_ok else Vector3.ZERO, "motorAxis": vec(source.motorAxis), "spin": spin})
+		result.merge({"radius": float(source.radius), "omega": vec(source.omega) if omega_ok else Vector3.ZERO, "motorAxis": vec(source.motorAxis), "spin": spin})
 	if controlled:
 		if not unit(source.get("forward")) or absf(vec(source.forward).dot(up)) > 1e-5 or not (source.get("pitch") is float or source.get("pitch") is int) or not is_finite(float(source.pitch)) or absf(source.pitch) > deg_to_rad(89.0) + 1e-6:
 			return reject("Invalid player view")
@@ -109,7 +109,10 @@ func import_json(text: String) -> Dictionary:
 		var image := Image.new()
 		if image.load_png_from_buffer(Marshalls.base64_to_raw(mark.substr(22))) != OK or image.get_width() != 128 or image.get_height() != 128:
 			return reject("Mark image must be a 128×128 PNG")
+	if not data.get("geometry", "rooms") in ["rooms", "tubes"]:
+		return reject("Invalid geometry")
 	var maze := Maze.new()
+	maze.tubes = data.get("geometry", "rooms") == "tubes"
 	for i in range(data.rooms.size()):
 		var source = data.rooms[i]
 		if not source is Dictionary or not valid_vector(source.get("cell"), 3, 100000):
@@ -174,4 +177,6 @@ func import_json(text: String) -> Dictionary:
 		if ball.is_empty():
 			return {}
 		balls.append(ball)
+	for value in balls + [player]:
+		maze.constrain_actor(value)
 	return {"maze": maze, "player": player, "balls": balls, "marks": data.marks}

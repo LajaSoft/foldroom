@@ -185,6 +185,7 @@ func build_menu() -> void:
 	var row := HBoxContainer.new()
 	menu_content.add_child(row)
 	button("Ball ↔ Walk", row, switch_mode)
+	button("Rooms ↔ Tubes", row, switch_geometry)
 	button("+ Ball", row, spawn_ball)
 	button("Jump to start", row, jump_start)
 	row = HBoxContainer.new()
@@ -459,11 +460,21 @@ func jump_start() -> void:
 	player = Motion.initial_player()
 	if mode == "walk":
 		Motion.set_mode(player, "walk")
+	maze.constrain_actor(player)
 	renderer.camera_distance = 0
 	gyro.reset()
 
+func switch_geometry() -> void:
+	maze.set_tubes(not maze.tubes, balls + [player])
+	renderer.camera_distance = 0
+	gyro.reset()
+	controls.stop_force()
+	dirty = true
+	show_message("Geometry: " + ("Tubes" if maze.tubes else "Rooms"))
+
 func switch_mode() -> void:
-	Motion.set_mode(player, "walk" if player.mode == "ball" else "ball")
+	Motion.set_mode(player, "walk" if player.mode == "ball" else "ball", Maze.Pipes.BALL_RADIUS if maze.tubes else 0.5)
+	maze.constrain_actor(player)
 	renderer.camera_distance = 0
 	gyro.reset()
 	controls.stop_force()
@@ -473,7 +484,9 @@ func spawn_ball() -> void:
 	if balls.size() >= 16:
 		show_message("Ball limit reached: 16")
 		return
-	balls.append(Motion.create_ball(randf() * TAU))
+	var ball := Motion.create_ball(randf() * TAU)
+	maze.constrain_actor(ball)
+	balls.append(ball)
 	show_message("Powered ball spawned")
 
 func set_active(value: bool) -> void:
@@ -621,7 +634,10 @@ func step_world(dt: float, forward: float, side: float, boost: float) -> void:
 			Motion.move_ball(maze, ball, part)
 		Motion.resolve_contacts(actors, maze)
 		if player.mode == "ball":
-			Motion.update_camera(player, part)
+			if maze.tubes:
+				Motion.update_tube_camera(maze, player, part)
+			if not maze.tubes:
+				Motion.update_camera(player, part)
 
 func _physics_process(dt: float) -> void:
 	controls.poll(dt)
@@ -705,6 +721,13 @@ func _process(dt: float) -> void:
 		if smoke_frames == 120:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("res://tests/bindings-smoke.png")
+			close_setup()
+			switch_geometry()
+			set_active(true)
+			smoke_check(maze.tubes and maze.tube_sample(player.room, player.p).clearance >= player.radius, "Tube switch places player inside geometry")
+		if smoke_frames == 140:
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("res://tests/tubes-smoke.png")
 			quit_game(1 if smoke_failed else 0)
 
 func save_audio_settings() -> void:

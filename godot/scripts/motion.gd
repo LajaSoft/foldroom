@@ -5,6 +5,8 @@ const Maze = preload("res://scripts/maze.gd")
 const HALF := 3.0
 const MAX_SPEED := 1200.0
 const MAX_SPIN := 48.0
+const TUBE_SKID_ANGLE := 0.16
+const TUBE_SKID_COOLDOWN := 0.8
 
 static func initial_player() -> Dictionary:
 	return {"room": 0, "p": Vector3(0, -2.5, 1.1), "forward": Vector3(0.18, 0, -1).normalized(), "up": Vector3.UP, "velocity": Vector3.ZERO, "pitch": 0.0, "mode": "ball", "controlled": true, "radius": 0.5, "omega": Vector3.ZERO, "motorAxis": Vector3(0.18, 0, -1).normalized().cross(Vector3.DOWN), "spin": Quaternion.IDENTITY, "cameraForward": Vector3(0.18, 0, -1).normalized(), "cameraUp": Vector3.UP}
@@ -13,15 +15,15 @@ static func create_ball(angle: float) -> Dictionary:
 	var heading := Vector3(cos(angle), 0, sin(angle))
 	return {"room": 0, "p": Vector3(0, -2.49, 0), "radius": 0.5, "up": Vector3.UP, "velocity": heading * 0.8, "omega": Vector3.UP.cross(heading) * 2.4, "motorAxis": Vector3.UP.cross(heading), "spin": Quaternion.IDENTITY}
 
-static func set_mode(player: Dictionary, mode: String) -> void:
+static func set_mode(player: Dictionary, mode: String, radius: float = 0.5) -> void:
 	if mode == player.get("mode", "walk"):
 		return
 	if mode == "ball":
-		player.p -= player.up * 0.5
-		player.merge({"radius": 0.5, "omega": Vector3.ZERO, "motorAxis": player.up.cross(player.forward).normalized(), "spin": Quaternion.IDENTITY, "controlled": true, "cameraForward": player.forward, "cameraUp": player.up, "pitch": 0.0}, true)
+		player.p -= player.up * radius
+		player.merge({"radius": radius, "omega": Vector3.ZERO, "motorAxis": player.up.cross(player.forward).normalized(), "spin": Quaternion.IDENTITY, "controlled": true, "cameraForward": player.forward, "cameraUp": player.up, "pitch": 0.0}, true)
 		player.mode = mode
 		return
-	player.p += player.up * 0.5
+	player.p += player.up * player.radius
 	for key in ["radius", "omega", "motorAxis", "spin", "controlled", "cameraForward", "cameraUp"]:
 		player.erase(key)
 	player.mode = mode
@@ -65,16 +67,47 @@ static func steer(player: Dictionary, side: float, dt: float) -> void:
 	player.omega = (q * player.omega) * retention
 
 static func drive(maze: FoldMaze, player: Dictionary, dt: float, forward: float, side: float, boost: float = 1.0) -> void:
-	steer(player, side, dt)
+	if maze.tubes:
+		steer_tube(player, side, dt)
+	if not maze.tubes:
+		steer(player, side, dt)
 	if forward < 0:
 		var retention := exp(-3.0 * minf(1, -forward) * dt)
 		player.velocity *= retention
 		player.omega *= retention
 	if forward > 0:
-		var impulse: Vector3 = player.cameraForward * (4.0 * boost * dt * minf(1, forward))
+		var heading: Vector3 = player.cameraForward
+		if maze.tubes:
+			var contact := maze.tube_sample(player.room, player.p)
+			if contact.clearance < player.radius + 0.15:
+				heading = (heading - contact.normal * heading.dot(contact.normal)).normalized()
+		var scale_factor := Maze.Pipes.SCALE if maze.tubes else 1.0
+		var impulse: Vector3 = heading * (4.0 * scale_factor * boost * dt * minf(1, forward))
 		player.velocity += impulse
 		player.omega += player.up.cross(impulse) / player.radius
 	move_ball(maze, player, dt)
+
+# Tube steering owns the heading; small rebounds must never select a new course.
+static func steer_tube(player: Dictionary, side: float, dt: float) -> void:
+	var turn := Quaternion(player.cameraUp, -1.8 * clampf(side, -1, 1) * dt)
+	player.cameraForward = (turn * player.cameraForward).normalized()
+	var normal_velocity: Vector3 = player.cameraUp * player.velocity.dot(player.cameraUp)
+	player.velocity = turn * (player.velocity - normal_velocity) + normal_velocity
+	player.omega = turn * player.omega
+
+static func update_tube_camera(maze: FoldMaze, player: Dictionary, dt: float) -> void:
+	var sample := maze.tube_sample(player.room, player.p)
+	if sample.clearance > player.radius + 0.2:
+		return
+	var surface_up: Vector3 = -sample.normal
+	var tangent: Vector3 = player.cameraForward - surface_up * player.cameraForward.dot(surface_up)
+	if tangent.length_squared() < 0.01:
+		return
+	var target := tangent.normalized()
+	var forward := smooth_direction(player.cameraForward, target, dt, player.cameraUp)
+	var up := smooth_direction(player.cameraUp, surface_up, dt, forward)
+	player.cameraForward = forward
+	player.cameraUp = (up - forward * up.dot(forward)).normalized()
 
 static func smooth_direction(current: Vector3, target: Vector3, dt: float, axis_hint: Vector3) -> Vector3:
 	var angle := acos(clampf(current.dot(target), -1, 1))
@@ -103,6 +136,7 @@ static func update_camera(player: Dictionary, dt: float) -> void:
 
 static func move_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 	dt = clampf(dt, 0, 0.05)
+	maze.constrain_actor(ball)
 	limit_motion(ball)
 	var steps := motion_steps(dt, ball.velocity)
 	for i in range(steps):
@@ -122,8 +156,12 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 	ball.motorAxis = motor_axis
 	ball.omega -= ball.up * ball.omega.dot(ball.up) * minf(1, dt * 0.4)
 	var torque := 0.0 if ball.get("controlled", false) else clampf((2.4 - spin_speed) * 0.35, 0, 0.22)
+	if maze.tubes:
+		torque *= Maze.Pipes.SCALE * Maze.Pipes.SCALE
 	ball.omega += motor_axis * (torque / inertia * dt)
-	ball.velocity -= ball.up * (8.0 * dt)
+	if maze.tubes and not ball.get("controlled", false):
+		drive_tube_motor(maze, ball, dt)
+	ball.velocity -= ball.up * (8.0 * (Maze.Pipes.SCALE if maze.tubes else 1.0) * dt)
 	limit_motion(ball, dt)
 	var next: Vector3 = ball.p + ball.velocity * dt
 	for axis in range(3):
@@ -134,6 +172,8 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 		for other in range(3):
 			if other != axis and absf(next[other]) > HALF - radius + 0.002:
 				fits = false
+		if maze.tubes and link != null and absf(next[axis]) > HALF - radius:
+			fits = maze.tube_sphere_sample(ball.room, next, radius).clearance >= radius - 0.01
 		if link != null and fits:
 			if absf(next[axis]) >= HALF:
 				var vectors: Array = [ball.velocity, ball.up, ball.omega, ball.motorAxis]
@@ -173,10 +213,91 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 		if is_floor and absf(ball.velocity.dot(normal)) < 0.05:
 			ball.velocity -= normal * ball.velocity.dot(normal)
 	ball.p = next
+	if maze.tubes:
+		var sample := maze.tube_sphere_sample(ball.room, ball.p, radius)
+		if sample.clearance < radius:
+			var normal: Vector3 = -sample.normal
+			var normal_speed: float = ball.velocity.dot(normal)
+			var impulse := maxf(0.0, -normal_speed * 1.12)
+			ball.velocity += normal * impulse
+			var arm := -normal * radius
+			var contact: Vector3 = ball.velocity + ball.omega.cross(arm)
+			var slip := contact - normal * contact.dot(normal)
+			if slip.length() > 0.000001:
+				var friction := -slip.normalized() * minf(slip.length() / 3.5, 0.6 * impulse)
+				ball.velocity += friction
+				ball.omega += arm.cross(friction) / inertia
+	maze.constrain_actor(ball)
 	limit_motion(ball)
 	var speed: float = ball.omega.length()
 	if speed > 1e-8:
 		ball.spin = (Quaternion(ball.omega / speed, speed * dt) * ball.spin).normalized()
+
+# Detect a climb followed by descent, once per swing. Rotate only tangent
+# momentum so the small skid changes its plane without adding kinetic energy.
+static func tube_rollback_direction(ball: Dictionary, direction: Vector3, normal: Vector3, dt: float) -> Vector3:
+	if ball.get("controlled", false):
+		return direction
+	if ball.get("tubeSkidRoom", -1) != ball.room:
+		ball.tubeSkidRoom = ball.room
+		ball.tubeSkidArmed = false
+		ball.tubeSkidCooldown = 0.0
+		ball.tubeSkidAngle = 0.0
+	ball.tubeSkidCooldown = maxf(0.0, ball.tubeSkidCooldown - dt)
+	ball.tubeSkidAngle *= exp(-1.8 * dt)
+	var rise: float = ball.velocity.dot(ball.up)
+	if rise > 0.3:
+		ball.tubeSkidArmed = true
+	if ball.get("tubeSkidArmed", false) and rise < -0.2 and ball.tubeSkidCooldown <= 0.0:
+		var count: int = ball.get("tubeSkidCount", 0) + 1
+		ball.tubeSkidCount = count
+		var phase: float = ball.motorAxis.dot(Vector3(1.7, 2.3, 3.1)) + count * 2.39996323
+		var angle := TUBE_SKID_ANGLE * (1.0 if sin(phase) >= 0.0 else -1.0)
+		var turn := Quaternion(normal, angle)
+		var normal_velocity: Vector3 = normal * ball.velocity.dot(normal)
+		ball.velocity = turn * (ball.velocity - normal_velocity) + normal_velocity
+		ball.omega = turn * ball.omega
+		ball.tubeSkidAngle = angle
+		ball.tubeSkidArmed = false
+		ball.tubeSkidCooldown = TUBE_SKID_COOLDOWN
+	return Quaternion(normal, float(ball.tubeSkidAngle)) * direction
+
+# Powered spheres keep a chosen exit until they cross it, rather than orbiting
+# the local gravity minimum. Traction is available only near the tube surface.
+static func drive_tube_motor(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
+	if not maze.tubes or ball.get("controlled", false):
+		return
+	var sample := maze.tube_sphere_sample(ball.room, ball.p, ball.radius)
+	if sample.clearance > ball.radius + 0.12:
+		return
+	if ball.get("tubeMotorRoom", -1) != ball.room or ball.get("tubeMotorFace", -1) < 0 or maze.rooms[ball.room].links[ball.tubeMotorFace] == null or Maze.NORMALS[ball.tubeMotorFace].dot(ball.up) > 0.5:
+		var heading: Vector3 = ball.motorAxis.cross(ball.up).normalized()
+		var best := -INF
+		var exit_face := -1
+		for face in range(6):
+			if maze.rooms[ball.room].links[face] == null:
+				continue
+			var score: float = Maze.NORMALS[face].dot(heading) - 2.0 * maxf(0.0, Maze.NORMALS[face].dot(ball.up))
+			if score > best:
+				best = score
+				exit_face = face
+		ball.tubeMotorRoom = ball.room
+		ball.tubeMotorFace = exit_face
+	var face: int = ball.tubeMotorFace
+	if face < 0:
+		return
+	var target: Vector3 = Maze.NORMALS[face] * HALF
+	var direction: Vector3 = target - ball.p
+	direction -= sample.normal * direction.dot(sample.normal)
+	if direction.length_squared() < 0.000001:
+		return
+	direction = tube_rollback_direction(ball, direction.normalized(), sample.normal, dt)
+	var tangent_velocity: Vector3 = ball.velocity - sample.normal * ball.velocity.dot(sample.normal)
+	var target_speed := 6.5 * Maze.Pipes.SCALE
+	var acceleration := (direction * target_speed - tangent_velocity) * 4.0
+	ball.velocity += acceleration.limit_length(12.0 * Maze.Pipes.SCALE) * dt
+	var rolling: Vector3 = (-sample.normal).cross(direction) * (target_speed / ball.radius)
+	ball.omega = ball.omega.lerp(rolling, 1.0 - exp(-4.0 * dt))
 
 static func fits_player(player: Dictionary, p: Vector3, face: int) -> bool:
 	for axis in range(3):
@@ -228,6 +349,7 @@ static func step_player(maze: FoldMaze, player: Dictionary, dt: float, forward: 
 			next[axis] = sign_value * (HALF - extent)
 			player.velocity[axis] = 0
 	player.p = next
+	maze.constrain_actor(player)
 
 static func resolve_contacts(actors: Array, maze: FoldMaze) -> void:
 	for a in range(actors.size()):
@@ -251,6 +373,8 @@ static func resolve_contacts(actors: Array, maze: FoldMaze) -> void:
 					var face := axis * 2 + int(sign_value < 0)
 					if maze.rooms[actor.room].links[face] == null:
 						actor.p[axis] = sign_value * minf(absf(actor.p[axis]), HALF - actor.radius)
+			maze.constrain_actor(first)
+			maze.constrain_actor(second)
 			var closing: float = (second.velocity - first.velocity).dot(normal)
 			if closing >= 0:
 				continue

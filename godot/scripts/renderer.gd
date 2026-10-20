@@ -7,6 +7,7 @@ const MAX_RENDER_BALLS := 128
 var surface: ColorRect
 var material_ray: ShaderMaterial
 var topology_image: Image
+var shape_texture: ImageTexture
 var topology_texture: ImageTexture
 var ball_image: Image
 var ball_texture: ImageTexture
@@ -38,12 +39,15 @@ func _ready() -> void:
 	add_child(surface)
 	topology_image = Image.create(1024, 1, false, Image.FORMAT_RGBAF)
 	topology_texture = ImageTexture.create_from_image(topology_image)
+	shape_texture = ImageTexture.create_from_image(Image.create(1024, 1, false, Image.FORMAT_RGBAF))
 	ball_image = Image.create(3, MAX_RENDER_BALLS, false, Image.FORMAT_RGBAF)
 	ball_texture = ImageTexture.create_from_image(ball_image)
 	marks_image = Image.create(2048, 1024, false, Image.FORMAT_RGBA8)
 	marks_image.fill(Color.TRANSPARENT)
 	marks_texture = ImageTexture.create_from_image(marks_image)
 	material_ray.set_shader_parameter("topology", topology_texture)
+	material_ray.set_shader_parameter("room_shapes", shape_texture)
+	material_ray.set_shader_parameter("pipe_catalog", Maze.Pipes.texture())
 	material_ray.set_shader_parameter("balls", ball_texture)
 	material_ray.set_shader_parameter("markings", marks_texture)
 	setup_overview()
@@ -146,10 +150,20 @@ func rebuild(maze: FoldMaze) -> void:
 			multi.set_instance_transform(room.id, Transform3D(Basis.IDENTITY, Vector3(room.cell) * 6.0))
 			multi.set_instance_custom_data(room.id, Color(data.a, data.b, 0, 0))
 	topology_texture.set_image(topology_image)
+	var shape_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() / 1024.0)), false, Image.FORMAT_RGBAF)
+	for room in maze.rooms:
+		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), 0, 0, 0))
+	shape_texture.set_image(shape_image)
 
 func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 	var result := Motion.camera_frame(maze, player)
 	var anchor: Vector3 = Vector3(maze.rooms[result.room].cell) * 6.0 + result.p
+	# At a folded mouth the actor's owning frame is authoritative. A lattice
+	# lookup at an exact positive boundary can select the wrong side of a fold.
+	if camera_distance <= 0.00001:
+		result.worldEye = anchor
+		result.outside = false
+		return result
 	var eye: Vector3 = anchor - result.forward * camera_distance
 	var cell: Vector3i
 	# Explicit floor matters for negative lattice coordinates.
@@ -177,6 +191,7 @@ static func portal_images(maze: FoldMaze, actors: Array) -> Array:
 	return records
 
 func sync(maze: FoldMaze, player: Dictionary, balls: Array) -> void:
+	material_ray.set_shader_parameter("tubes", maze.tubes)
 	frame = view(maze, player)
 	outside = frame.outside
 	surface.visible = not outside
@@ -212,7 +227,7 @@ func sync(maze: FoldMaze, player: Dictionary, balls: Array) -> void:
 	sphere_instances.multimesh.visible_instance_count = all_balls.size()
 	for i in range(all_balls.size()):
 		var actor: Dictionary = all_balls[i]
-		var scale_value := 1.0 if actor.get("mode", "ball") == "ball" else 0.56
+		var scale_value: float = actor.get("radius", 0.28) / 0.5
 		var spin: Quaternion = actor.get("spin", Quaternion.IDENTITY)
 		sphere_instances.multimesh.set_instance_transform(i, Transform3D(Basis(spin).scaled(Vector3.ONE * scale_value), Vector3(maze.rooms[actor.room].cell) * 6.0 + actor.p))
 		sphere_instances.multimesh.set_instance_color(i, Color(1, 0.85, 0.4) if i == all_balls.size() - 1 else Color(0.84, 0.89, 0.87))
