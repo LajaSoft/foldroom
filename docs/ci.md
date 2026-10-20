@@ -18,3 +18,7 @@ GitHub runs on pushes, pull requests and manual dispatch, uploading `artifacts/`
 GitLab uses TLS Docker-in-Docker. The Docker runner needs privileged mode and a shared `/certs/client` volume between job and service; see the [GitLab runner configuration](https://docs.gitlab.com/ci/docker/docker_in_docker/). Build sources are copied into the image and results out of a stopped container, so paths do not depend on the remote Docker daemon seeing the job checkout. A GitLab project/mirror and runner are required to validate an actual pipeline.
 
 Media: `docs/media/foldroom-gameplay.mp4` is a silent 28-second excerpt (12–40 s) of `tmp/demo_0.001.mp4`, encoded H.264 at 30 fps. The original recording stays ignored. Screenshots show actual game output.
+
+## Gameplay player
+
+The Pages workflow publishes only `docs/gameplay.html` and its poster. The HTML video player streams the MP4 from the raw GitHub URL with an explicit `video/mp4` source type. Enable GitHub Pages with **Source: GitHub Actions** in repository Settings → Pages. The workflow deploys on relevant pushes to `main` or manual dispatch; the original web game is not published.
