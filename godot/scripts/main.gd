@@ -321,6 +321,7 @@ func build_setup() -> void:
 			var clear := button("×", row, func(): controls.assign_binding(action, {}, slot))
 			clear.tooltip_text = "Clear this assignment"
 	label("AUDIO", setup_content, 22)
+	slider(setup_content, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
 	slider(setup_content, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
 	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", setup_content, 14)
 
@@ -661,10 +662,13 @@ func _physics_process(dt: float) -> void:
 	if Input.is_physical_key_pressed(KEY_LEFT): side = -1
 	if Input.is_physical_key_pressed(KEY_RIGHT): side = 1
 	var boost := 5.0 if controls.value("boost") > 0 else 1.0
+	var before_room: int = player.room
 	var before_velocity: Vector3 = player.velocity
 	maze.impacts.clear()
 	maze.player_rotation = Quaternion.IDENTITY
 	step_world(minf(dt, 0.05), forward, side, boost)
+	if player.room != before_room:
+		sound.music.event(&"passage")
 	var camera_right: Vector3 = player.get("cameraForward", player.forward).cross(player.get("cameraUp", player.up)).normalized()
 	# A portal rotates the velocity basis without causing acceleration.
 	last_lateral = (player.velocity - maze.player_rotation * before_velocity).dot(camera_right) / dt
@@ -756,6 +760,7 @@ func _process(dt: float) -> void:
 func save_audio_settings() -> void:
 	var config := ConfigFile.new()
 	config.set_value("audio", "volume", sound.volume)
+	config.set_value("audio", "music_volume", sound.music.volume)
 	var result := config.save("user://audio.cfg")
 	if result != OK:
 		show_message("Audio settings save failed: " + error_string(result))
@@ -768,6 +773,7 @@ func load_audio_settings() -> void:
 	if result != OK:
 		show_message("Audio settings load failed: " + error_string(result))
 		return
+	sound.music.volume = clampf(float(config.get_value("audio", "music_volume", 0.45)), 0, 1)
 	sound.volume = clampf(float(config.get_value("audio", "volume", 0.55)), 0, 1)
 
 func smoke_check(condition: bool, message: String) -> void:

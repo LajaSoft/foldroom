@@ -1,6 +1,8 @@
 class_name FoldSound
 extends AudioStreamPlayer
 
+var music = preload("res://scripts/music.gd").new()
+
 var playback: AudioStreamGeneratorPlayback
 var phase := 0.0
 var speed := 0.0
@@ -15,7 +17,7 @@ var smooth_frequency := 45.0
 func _ready() -> void:
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 22050.0
-	generator.buffer_length = 0.08
+	generator.buffer_length = 0.18
 	stream = generator
 	play()
 	playback = get_stream_playback()
@@ -24,6 +26,7 @@ func _ready() -> void:
 func impact(impulse: float, attenuation: float = 1.0) -> void:
 	if impulse < 0.3 or attenuation < 0.01:
 		return
+	music.event(&"impact", impulse * attenuation / 12.0)
 	voices.append({"age": 0.0, "level": minf(0.7, impulse * 0.075) * attenuation, "frequency": 70.0 + minf(180, impulse * 10.0), "phase": 0.0})
 	if voices.size() > 8:
 		voices.pop_front()
@@ -35,6 +38,8 @@ func silence() -> void:
 func _process(_dt: float) -> void:
 	if playback == null:
 		return
+	music.enabled = active
+	music.advance(_dt, speed)
 	var frames := mini(playback.get_frames_available(), 8192)
 	var buffer := PackedVector2Array()
 	buffer.resize(frames)
@@ -53,7 +58,8 @@ func _process(_dt: float) -> void:
 			var envelope := exp(-voice.age * 24.0)
 			sample += voice.level * envelope * (sin(voice.phase) * 0.65 + random.randf_range(-1, 1) * 0.35)
 		sample = tanh(sample * volume)
-		buffer[i] = Vector2(sample, sample)
+		var musical: Vector2 = music.sample()
+		buffer[i] = Vector2(tanh(sample + musical.x), tanh(sample + musical.y))
 	voices = voices.filter(func(voice): return voice.age < 0.35)
 	playback.push_buffer(buffer)
 
