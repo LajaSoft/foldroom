@@ -121,6 +121,11 @@ func button(text: String, parent: Node, callback: Callable) -> Button:
 	parent.add_child(value)
 	return value
 
+func ball_buttons(parent: Node) -> void:
+	button("+ Ball", parent, spawn_ball)
+	button("Remove first ball", parent, remove_first_ball)
+	button("Remove all balls", parent, remove_all_balls)
+
 func build_hud() -> void:
 	var top := HBoxContainer.new()
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
@@ -130,7 +135,7 @@ func build_hud() -> void:
 	root.add_child(top)
 	var brand := label("FOLDROOM  /  GYRO LAB", top, 24)
 	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button("+ Ball", top, spawn_ball)
+	ball_buttons(top)
 	button("Controls", top, open_setup)
 	button("Pause", top, func(): set_active(false))
 	hud = label("", root)
@@ -193,8 +198,10 @@ func build_menu() -> void:
 	menu_content.add_child(row)
 	button("Ball ↔ Walk", row, switch_mode)
 	button("Rooms ↔ Tubes", row, switch_geometry)
-	button("+ Ball", row, spawn_ball)
 	button("Jump to start", row, jump_start)
+	row = HBoxContainer.new()
+	menu_content.add_child(row)
+	ball_buttons(row)
 	row = HBoxContainer.new()
 	menu_content.add_child(row)
 	button("Example", row, load_example)
@@ -497,6 +504,17 @@ func spawn_ball() -> void:
 	balls.append(ball)
 	show_message("Powered ball spawned")
 
+func remove_first_ball() -> void:
+	if balls.is_empty():
+		show_message("No balls to remove")
+		return
+	balls.pop_front()
+	show_message("First ball removed")
+
+func remove_all_balls() -> void:
+	balls.clear()
+	show_message("All balls removed")
+
 func set_active(value: bool) -> void:
 	active = value
 	started = started or active
@@ -580,8 +598,7 @@ func on_action(action: String) -> void:
 		return
 	var actions := {
 		"pause": func(): set_active(false), "mode": switch_mode, "spawn": spawn_ball,
-		"remove_ball": func():
-			if not balls.is_empty(): balls.pop_front(),
+		"remove_ball": remove_first_ball,
 		"reset": reset_maze, "jump_start": jump_start,
 		"straight": func(): carve("straight"), "up": func(): carve("up"), "down": func(): carve("down"),
 		"delete": remove_passage, "marker": func(): drawing = true; mark_wall(),
@@ -718,7 +735,7 @@ func _process(dt: float) -> void:
 	if active:
 		var hit := renderer.aim(maze, player, marker_cursor)
 		var link = maze.rooms[hit.room].links[hit.face]
-		target.text = "OVERVIEW" if renderer.camera_distance > 0 else ("PASSAGE · DEL TO REMOVE" if link != null else "WALL") + "\n" + FACE_NAMES[hit.face]
+		target.text = "OVERVIEW" if renderer.outside else ("PASSAGE · DEL TO REMOVE" if link != null else "WALL") + "\n" + FACE_NAMES[hit.face]
 		crosshair.position = root.size / 2.0 + marker_cursor - Vector2(9, 17)
 		crosshair.text = "⊙" if drawing else "+"
 		crosshair.visible = renderer.camera_distance == 0

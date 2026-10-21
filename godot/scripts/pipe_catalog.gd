@@ -30,10 +30,15 @@ static func clearance(mask: int, p: Vector3) -> float:
 	var y := floori(grid.y)
 	var z := floori(grid.z)
 	var t := grid - Vector3(x, y, z)
-	var a := lerpf(value(mask, x, y, z), value(mask, x + 1, y, z), t.x)
-	var b := lerpf(value(mask, x, y + 1, z), value(mask, x + 1, y + 1, z), t.x)
-	var c := lerpf(value(mask, x, y, z + 1), value(mask, x + 1, y, z + 1), t.x)
-	var d := lerpf(value(mask, x, y + 1, z + 1), value(mask, x + 1, y + 1, z + 1), t.x)
+	# Adjacent grid corners share a base index; avoid eight function calls and
+	# repeated mask/row arithmetic for every clearance query.
+	var base := ((mask * RESOLUTION + z) * RESOLUTION + y) * RESOLUTION + x
+	var row := RESOLUTION
+	var plane := RESOLUTION * RESOLUTION
+	var a := lerpf(samples[base], samples[base + 1], t.x)
+	var b := lerpf(samples[base + row], samples[base + row + 1], t.x)
+	var c := lerpf(samples[base + plane], samples[base + plane + 1], t.x)
+	var d := lerpf(samples[base + plane + row], samples[base + plane + row + 1], t.x)
 	return lerpf(lerpf(a, b, t.y), lerpf(c, d, t.y), t.z)
 
 static func texture() -> ImageTexture:

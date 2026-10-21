@@ -4,6 +4,8 @@ extends Control
 const Maze = preload("res://scripts/maze.gd")
 const Motion = preload("res://scripts/motion.gd")
 const MAX_RENDER_BALLS := 128
+const MAP_DISTANCE := 6.0 * 2.0 / 3.0
+const CAMERA_MARGIN := 0.01
 var surface: ColorRect
 var material_ray: ShaderMaterial
 var topology_image: Image
@@ -165,15 +167,50 @@ func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 		result.outside = false
 		return result
 	var eye: Vector3 = anchor - result.forward * camera_distance
-	var cell: Vector3i
-	# Explicit floor matters for negative lattice coordinates.
-	cell = Vector3i(floori((eye.x + 3.0) / 6.0), floori((eye.y + 3.0) / 6.0), floori((eye.z + 3.0) / 6.0))
 	result.worldEye = eye
-	result.outside = not maze.cells.has(cell)
-	if not result.outside:
-		result.room = maze.cells[cell]
-		result.p = eye - Vector3(cell) * 6.0
+	result.outside = camera_distance >= MAP_DISTANCE
+	if result.outside:
+		return result
+	# Follow the same folded space as the actor instead of looking up a lattice cell.
+	var remaining := camera_distance
+	while remaining > 0.00001:
+		var direction: Vector3 = -result.forward
+		var hit := Maze.intersect(result.p, direction)
+		if maze.tubes:
+			var limit := minf(remaining, hit.distance)
+			var clear_distance := tube_camera_distance(maze, result.room, result.p, direction, limit)
+			if clear_distance < limit:
+				result.p += direction * clear_distance
+				break
+		if hit.distance >= remaining:
+			result.p += direction * remaining
+			break
+		if maze.rooms[result.room].links[hit.face] == null:
+			result.p += direction * maxf(0.0, hit.distance - CAMERA_MARGIN)
+			break
+		var advance := minf(remaining, hit.distance + CAMERA_MARGIN)
+		var moved := maze.transport(result.room, hit.face, result.p + direction * advance, [result.forward, result.up, result.gravityUp])
+		result.room = moved.room
+		result.p = moved.p
+		result.forward = moved.vectors[0]
+		result.up = moved.vectors[1]
+		result.gravityUp = moved.vectors[2]
+		remaining -= advance
+	result.worldEye = Vector3(maze.rooms[result.room].cell) * 6.0 + result.p
 	return result
+
+# Use the same clearance field and conservative step as the tube ray shader.
+# A cube face alone does not constrain the camera to the curved pipe interior.
+static func tube_camera_distance(maze: FoldMaze, room: int, origin: Vector3, direction: Vector3, limit: float) -> float:
+	var distance := 0.0
+	for step in range(256):
+		var gap := maze.tube_clearance(room, origin + direction * distance) - CAMERA_MARGIN
+		if gap <= 0.0001:
+			return distance
+		distance = minf(limit, distance + gap * 0.5)
+		if distance >= limit:
+			return limit
+	return distance
 
 # Draw the two clipped portions of a crossing sphere in their own room frames.
 # These are render records only; no actor or collision body is duplicated.

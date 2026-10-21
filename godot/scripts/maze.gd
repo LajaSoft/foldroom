@@ -17,6 +17,11 @@ var next_link := 1
 var last_error := ""
 var impacts: Array = []
 var player_rotation := Quaternion.IDENTITY
+# Only the latest exact sphere query is retained; memory does not grow with travel.
+var sphere_sample_mask := -1
+var sphere_sample_position := Vector3.ZERO
+var sphere_sample_radius := 0.0
+var sphere_sample_result: Dictionary = {}
 
 func _init() -> void:
 	room(Vector3i.ZERO)
@@ -272,6 +277,9 @@ func tube_sample(room_id: int, p: Vector3) -> Dictionary:
 # The fillet field is not an exact signed distance. Test the sphere's support
 # against the actual surface instead of treating center clearance as its radius.
 func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
+	var mask := tube_shape_mask(room_id)
+	if mask == sphere_sample_mask and p == sphere_sample_position and radius == sphere_sample_radius:
+		return sphere_sample_result
 	var center := tube_sample(room_id, p)
 	var direction: Vector3 = center.normal
 	var gap := tube_clearance(room_id, p + direction * radius)
@@ -289,7 +297,12 @@ func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
 		gap = candidate
 		direction = next
 	var normal := tube_sample(room_id, p + direction * radius)
-	return {"clearance": radius + gap, "normal": normal.normal}
+	sphere_sample_mask = mask
+	sphere_sample_position = p
+	sphere_sample_radius = radius
+	sphere_sample_result = {"clearance": radius + gap, "normal": normal.normal}
+	sphere_sample_result.make_read_only()
+	return sphere_sample_result
 
 func constrain_actor(actor: Dictionary) -> void:
 	if not tubes:

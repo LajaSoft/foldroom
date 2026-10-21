@@ -76,6 +76,9 @@ func run() -> void:
 		quit(1)
 		return
 	var reference: Dictionary = JSON.parse_string(file.get_as_text())
+	test_tube_sample_cache()
+	test_tube_third_person_camera()
+	test_third_person_camera()
 	test_portals(reference.transport)
 	test_portal_images(reference.transport)
 	test_trajectories(reference.trajectories)
@@ -845,3 +848,71 @@ func test_pipe_scale_migration() -> void:
 	check(not migrated.is_empty(), "Legacy tube quick saves remain readable")
 	if not migrated.is_empty():
 		check(absf(migrated.player.radius - 0.33) < 0.00001 and absf(migrated.player.p.z - 2.8) < 0.00001, "Legacy saves migrate around the pipe spine")
+
+func test_third_person_camera() -> void:
+	var renderer := Renderer.new()
+	var maze := Maze.new()
+	var player := Motion.initial_player()
+	player.p = Vector3.ZERO
+	player.cameraForward = Vector3.FORWARD
+	renderer.camera_distance = 3.9
+	var frame := renderer.view(maze, player)
+	check(not frame.outside and frame.room == 0, "Close camera stays in actor space")
+	check(frame.p.distance_to(Vector3(0, 0, 2.99)) < 0.00001, "Third person camera stops at solid wall")
+	for kind in ["straight", "up", "down"]:
+		maze = Maze.new()
+		maze.create(0, 4, kind, Vector3.UP)
+		frame = renderer.view(maze, player)
+		var expected := maze.transport(0, 4, Vector3(0, 0, 3.9), [Vector3.FORWARD, Vector3.UP])
+		check(not frame.outside and frame.room == expected.room, "Third person camera crosses %s portal" % kind)
+		check(frame.p.distance_to(expected.p) < 0.00001, "Third person camera position through %s portal" % kind)
+		check(frame.forward.distance_to(expected.vectors[0]) < 0.00001, "Third person camera orientation through %s portal" % kind)
+	renderer.camera_distance = 4.0
+	check(renderer.view(maze, player).outside, "Map starts at two thirds of room size even inside lattice")
+	renderer.camera_distance = 0.0
+	frame = renderer.view(maze, player)
+	check(not frame.outside and frame.p == player.p and frame.room == player.room, "First person camera keeps actor frame")
+	renderer.free()
+
+func test_tube_third_person_camera() -> void:
+	var renderer := Renderer.new()
+	renderer.camera_distance = 3.9
+	for kind in ["straight", "up", "down"]:
+		var maze := Maze.new()
+		maze.create(0, 5, kind, Vector3.UP)
+		maze.create(0, 4, "straight", Vector3.UP)
+		maze.tubes = true
+		for z in [-3.05, -2.5, 0.0, 2.95]:
+			for tick in range(72):
+				var angle := TAU * tick / 72.0
+				var player := Motion.initial_player()
+				player.p = Vector3(cos(angle) * 1.0, sin(angle) * 1.0, z)
+				player.cameraForward = Vector3(-sin(angle) * 0.7, cos(angle) * 0.7, -1).normalized()
+				player.cameraUp = Vector3(cos(angle), sin(angle), 0)
+				# Check both owning frames at the folded seam.
+				if z < -2.9:
+					var moved := maze.transport(0, 5, player.p, [player.cameraForward, player.cameraUp])
+					player.room = moved.room
+					player.p = moved.p
+					player.cameraForward = moved.vectors[0]
+					player.cameraUp = moved.vectors[1]
+				var frame := renderer.view(maze, player)
+				check(not frame.outside, "Spiralling tube camera stays in third person")
+				check(maze.tube_clearance(frame.room, frame.p) >= Renderer.CAMERA_MARGIN - 0.0002, "Spiralling camera stays inside tube through %s portal" % kind)
+	renderer.free()
+
+func test_tube_sample_cache() -> void:
+	var maze := Maze.new()
+	maze.create(0, 5, "straight", Vector3.UP)
+	var p := Vector3(0.3, -1.1, 0.5)
+	var first := maze.tube_sphere_sample(0, p, 0.33)
+	check(first.is_read_only(), "Cached sphere query cannot be changed by callers")
+	check(maze.tube_sphere_sample(0, p, 0.33) == first, "Exact repeated sphere query reuses result")
+	for query in [[p + Vector3.RIGHT * 0.1, 0.33], [p, 0.4]]:
+		var cached := maze.tube_sphere_sample(0, query[0], query[1])
+		maze.sphere_sample_mask = -1
+		check(cached == maze.tube_sphere_sample(0, query[0], query[1]), "Position and radius changes invalidate sphere query")
+	maze.create(0, 0, "straight", Vector3.UP)
+	var changed := maze.tube_sphere_sample(0, p, 0.33)
+	maze.sphere_sample_mask = -1
+	check(changed == maze.tube_sphere_sample(0, p, 0.33), "Topology changes invalidate sphere query")
