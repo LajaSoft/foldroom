@@ -2,7 +2,7 @@ class_name FoldGyro
 extends RefCounted
 
 # A deliberately approximate single contact patch / internal rotor model.
-# Physics remains identical to the web game; these terms only produce wheel torque.
+# Contact dynamics supply surface vibration alongside the rotor torque.
 var strength := 0.35
 var gyro_resistance := 0.16
 var centering := 0.32
@@ -17,8 +17,10 @@ var pulse_direction := 1.0
 var base_output := 0.0
 var output := 0.0
 var components := {}
+var surface_response := 0.0
 
 func reset() -> void:
+	surface_response = 0.0
 	pulse = 0.0
 	pulse_phase = 0.0
 	pulse_direction = 1.0
@@ -53,8 +55,9 @@ func compute(steering: float, steer_rate: float, spin: float, lateral_accel: flo
 	var tap := pulse_direction * 0.65 * exp(-pulse_phase * 40.0)
 	var vibration := sin(TAU * impact_frequency * pulse_phase) * 0.8
 	var kick := pulse * impact_strength * envelope * attack * (tap + vibration)
-	components = {"align": align, "gyro": gyro, "damper": damper, "lateral": lateral, "impact": kick, "motor": motor}
-	output = clampf(base_output + kick * strength, -strength, strength)
+	var surface := surface_response * load * 0.18
+	components = {"surface": surface, "align": align, "gyro": gyro, "damper": damper, "lateral": lateral, "impact": kick, "motor": motor}
+	output = clampf(base_output + (kick + surface) * strength, -strength, strength)
 	pulse_phase += maxf(0.0, dt)
 	if pulse_phase >= 0.22:
 		pulse = 0.0

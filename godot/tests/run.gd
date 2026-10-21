@@ -102,6 +102,7 @@ func run() -> void:
 	test_topology()
 	test_corner_rules_and_pruning()
 	test_stability()
+	test_asphalt()
 	test_gyro()
 	test_controls()
 	test_native_ffb()
@@ -916,3 +917,21 @@ func test_tube_sample_cache() -> void:
 	var changed := maze.tube_sphere_sample(0, p, 0.33)
 	maze.sphere_sample_mask = -1
 	check(changed == maze.tube_sphere_sample(0, p, 0.33), "Topology changes invalidate sphere query")
+
+func test_asphalt() -> void:
+	var ball := Motion.initial_player()
+	Motion.asphalt_contact(ball, Vector3.UP, 1.0 / 120.0)
+	check(ball.surfaceResponse == 0.0 and ball.velocity == Vector3.ZERO, "Stationary asphalt contact produces no vibration")
+	ball.velocity = Vector3(0, 0, -3)
+	Motion.asphalt_contact(ball, Vector3.UP, 1.0 / 120.0)
+	check(absf(ball.surfaceResponse) > 0.01, "Rolling asphalt contact produces aggregate response")
+	check(absf(ball.velocity.y) > 0.0 and ball.velocity.is_finite(), "Asphalt response reaches sphere dynamics")
+	var gyro := Gyro.new()
+	gyro.surface_response = ball.surfaceResponse
+	gyro.compute(0, 0, 0, 0, 1, 0, 1.0 / 120.0)
+	check(absf(gyro.components.surface) > 0.0, "Asphalt response reaches loaded wheel")
+	check(absf(gyro.output) <= gyro.strength, "Surface torque respects wheel gain cap")
+	gyro.compute(0, 0, 0, 0, 0, 0, 1.0 / 120.0)
+	check(gyro.components.surface == 0.0, "Airborne wheel has no asphalt vibration")
+	gyro.reset()
+	check(gyro.surface_response == 0.0, "Wheel reset clears surface response")

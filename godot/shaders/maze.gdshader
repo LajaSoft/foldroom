@@ -20,6 +20,19 @@ vec3 normalOf(int f){if(f==0)return vec3(1,0,0);if(f==1)return vec3(-1,0,0);if(f
 vec3 turn(vec3 p,vec4 q){return p+2.*cross(q.xyz,cross(q.xyz,p)+q.w*p);}
 vec2 uvOf(vec3 p,int f){if(f<2)return p.zy/6.+.5;if(f<4)return p.xz/6.+.5;return p.xy/6.+.5;}
 vec3 colorOf(int f){if(f==0)return vec3(.92,.41,.38);if(f==1)return vec3(.33,.78,.69);if(f==2)return vec3(.85,.83,.73);if(f==3)return vec3(.39,.55,.88);if(f==4)return vec3(.69,.51,.83);return vec3(.93,.67,.38);}
+// Smooth aggregate height gradient: bump shading without square color cells.
+float aggregateHash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+vec3 aggregateGradient(vec3 p){
+ vec3 cell=floor(p),t=fract(p);
+ vec3 u=t*t*(3.-2.*t),du=6.*t*(1.-t);
+ float a=aggregateHash(cell),b=aggregateHash(cell+vec3(1,0,0));
+ float c=aggregateHash(cell+vec3(0,1,0)),d=aggregateHash(cell+vec3(1,1,0));
+ float e=aggregateHash(cell+vec3(0,0,1)),f=aggregateHash(cell+vec3(1,0,1));
+ float g=aggregateHash(cell+vec3(0,1,1)),h=aggregateHash(cell+vec3(1,1,1));
+ return du*vec3(mix(mix(b-a,d-c,u.y),mix(f-e,h-g,u.y),u.z),
+                mix(mix(c-a,d-b,u.x),mix(g-e,h-f,u.x),u.z),
+                mix(mix(e-a,f-b,u.x),mix(g-c,h-d,u.x),u.y));
+}
 // Two bilinear reads interpolate one precomputed local fitting. No room
 // neighbors, implicit unions, powers or portal transports run in this field.
 float pipeSlice(int mask,int z,vec2 xy){
@@ -103,15 +116,21 @@ void fragment(){
    if(tubeWall){
      vec3 e=vec3(.03,0.,0.);
      vec3 n=-normalize(vec3(tubeClearance(room,hit+e.xyy)-tubeClearance(room,hit-e.xyy),tubeClearance(room,hit+e.yxy)-tubeClearance(room,hit-e.yxy),tubeClearance(room,hit+e.yyx)-tubeClearance(room,hit-e.yyx)));
-     float light=.45+.4*abs(dot(n,normalize(vec3(.4,.8,.3))));
-     vec3 grid=abs(fract(hit*2.)-.5);
-     vec3 width=max(fwidth(hit*2.),vec3(.002));
-     vec3 lines=vec3(1.)-smoothstep(vec3(.015),vec3(.015)+width,grid);
-     float line=max(lines.x,max(lines.y,lines.z));
+     // Fade unresolved microrelief to prevent shimmer at grazing angles.
+     float detail=1.-smoothstep(.35,1.2,length(fwidth(hit*240.)));
+     vec3 gradient=aggregateGradient(hit*240.);
+     vec3 bump=normalize(n-(gradient-n*dot(n,gradient))*.32*detail);
+     vec3 lamp=normalize(vec3(.4,.8,.3));
+     float light=.78+.22*abs(dot(bump,lamp));
+     float sheen=pow(max(0.,dot(bump,normalize(lamp-ray))),32.)*.34;
+     float facing=1.-max(0.,dot(bump,-ray));
      int panelAxis=abs(n.x)>=abs(n.y)&&abs(n.x)>=abs(n.z)?0:(abs(n.y)>=abs(n.z)?1:2);
      int panelFace=panelAxis*2+(n[panelAxis]<0.?1:0);
-     vec3 panelColor=colorOf(panelFace);
-     color=panelColor*light*(1.-line*.3);
+     vec3 tint=colorOf(panelFace);
+     float luminance=dot(tint,vec3(.2126,.7152,.0722));
+     tint=max(vec3(0.),mix(vec3(luminance),tint,1.3));
+     vec3 asphalt=mix(vec3(.23,.25,.26),tint*.48,.82);
+     color=asphalt*light+vec3(sheen+.025*pow(facing,3.));
      color=mix(color,vec3(.07,.105,.12),1.-exp(-distance*.012));
      break;
    }

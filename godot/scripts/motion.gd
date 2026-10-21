@@ -134,8 +134,22 @@ static func update_camera(player: Dictionary, dt: float) -> void:
 	player.cameraForward = forward
 	player.cameraUp = (up - forward * up.dot(forward)).normalized()
 
+# Distance-driven aggregate response shared by sphere dynamics and wheel feedback.
+static func asphalt_contact(ball: Dictionary, normal: Vector3, dt: float) -> void:
+	var tangent: Vector3 = ball.velocity - normal * ball.velocity.dot(normal)
+	var speed := tangent.length()
+	var distance: float = ball.get("surfaceDistance", 0.0) + speed * dt
+	ball.surfaceDistance = fmod(distance, 4096.0)
+	var grain := sin(distance * TAU / 0.13) * 0.65 + sin(distance * TAU / 0.057) * 0.35
+	var response := grain * minf(speed / 3.0, 1.0)
+	ball.surfaceResponse = response
+	ball.velocity += normal * response * 1.4 * dt
+	if speed > 0.000001:
+		ball.omega += normal.cross(tangent / speed) * response * 0.5 * dt / ball.radius
+
 static func move_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 	dt = clampf(dt, 0, 0.05)
+	ball.surfaceResponse = 0.0
 	maze.constrain_actor(ball)
 	limit_motion(ball)
 	var steps := motion_steps(dt, ball.velocity)
@@ -215,6 +229,8 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 	ball.p = next
 	if maze.tubes:
 		var sample := maze.tube_sphere_sample(ball.room, ball.p, radius)
+		if sample.clearance <= radius + 0.015:
+			asphalt_contact(ball, -sample.normal, dt)
 		if sample.clearance < radius:
 			var normal: Vector3 = -sample.normal
 			var normal_speed: float = ball.velocity.dot(normal)

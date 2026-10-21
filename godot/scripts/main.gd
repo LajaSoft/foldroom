@@ -693,6 +693,11 @@ func _physics_process(dt: float) -> void:
 	var floor_face := Maze.face_of(-player.up)
 	if maze.rooms[player.room].links[floor_face] == null and player.p.dot(player.up) < -2.48:
 		grounded = 1.0
+	gyro.surface_response = 0.0
+	if maze.tubes and player.mode == "ball":
+		var sample := maze.tube_sphere_sample(player.room, player.p, player.radius)
+		grounded = 1.0 if sample.clearance <= player.radius + 0.015 else 0.0
+		gyro.surface_response = player.get("surfaceResponse", 0.0)
 	for hit in maze.impacts:
 		if hit.controlled and player.mode == "ball":
 			gyro.impact(hit.impulse, hit.normal.dot(hit.right))
