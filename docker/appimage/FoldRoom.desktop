@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=FoldRoom
+Comment=Explore folded rooms and tubes
+Exec=FoldRoom
+Icon=FoldRoom
+Categories=Game;
+Terminal=false

@@ -11,9 +11,12 @@ Run `bash docker/run-ci.sh` from the repository root. It builds an isolated sour
 - JSON round trip: load the native export through the original web importer.
 - Release export: verify executable and release GDExtension exist; copy application and third-party licenses.
 - Packaged launch: start the real exported binary headlessly, fail on script/shader/engine errors.
+- AppImage: package the same release binary, FFB library and licenses; launch with `--appimage-extract-and-run` from another working directory, forwarding headless/audio/quit arguments and rejecting engine errors. No FUSE or privileged container is needed.
 - Manual release gate: NVIDIA rendering, sound, MOZA discovery and physical feel. Headless CI cannot establish these.
 
-GitHub runs on pushes, pull requests and manual dispatch, uploading `artifacts/` even after failures. No release is published automatically.
+GitHub runs on pushes, pull requests and manual dispatch, uploading `artifacts/` even after failures. The separate `FoldRoom-AppImage-x86_64` artifact contains the AppImage and checksums; no release is published automatically.
+
+AppImage packaging uses [appimagetool 1.9.1](https://github.com/AppImage/appimagetool/releases/tag/1.9.1) and a pinned type2 runtime asset, with SHA-256 verification in the Dockerfile. The package includes Godot, the release FFB extension and licenses. System graphics/audio drivers and device permissions come from the host; glibc 2.35+ is required by the Ubuntu 22.04-built FFB extension. Desktop rendering, audio and wheel access require the manual checks above.
 
 GitLab uses TLS Docker-in-Docker. The Docker runner needs privileged mode and a shared `/certs/client` volume between job and service; see the [GitLab runner configuration](https://docs.gitlab.com/ci/docker/docker_in_docker/). Build sources are copied into the image and results out of a stopped container, so paths do not depend on the remote Docker daemon seeing the job checkout. A GitLab project/mirror and runner are required to validate an actual pipeline.
 

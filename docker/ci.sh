@@ -22,4 +22,10 @@ if grep -E 'SCRIPT ERROR:|SHADER ERROR:|^ERROR:' artifacts/launch.log; then
   exit 1
 fi
 tar -czf artifacts/FoldRoom-linux-x86_64.tar.gz -C artifacts FoldRoom-linux-x86_64
-sha256sum artifacts/FoldRoom-linux-x86_64.tar.gz > artifacts/SHA256SUMS
+bash docker/build-appimage.sh
+# Run from another directory, with arguments forwarded through the real AppRun.
+(cd /tmp && /work/artifacts/FoldRoom-x86_64.AppImage --appimage-extract-and-run --headless --audio-driver Dummy --quit-after 10) 2>&1 | tee artifacts/appimage-launch.log
+if grep -E 'SCRIPT ERROR:|SHADER ERROR:|^ERROR:' artifacts/appimage-launch.log; then
+  exit 1
+fi
+(cd artifacts && sha256sum FoldRoom-linux-x86_64.tar.gz FoldRoom-x86_64.AppImage > SHA256SUMS)

@@ -11,11 +11,18 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
-      - name: Test and export Linux build
+      - name: Test, export and package Linux AppImage
         run: bash docker/run-ci.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: FoldRoom-linux-x86_64
           path: artifacts/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FoldRoom-AppImage-x86_64
+          path: |
+            artifacts/FoldRoom-x86_64.AppImage
+            artifacts/SHA256SUMS
           if-no-files-found: error

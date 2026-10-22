@@ -35,12 +35,25 @@ WORKDIR /work
 # CI packages the source into the image so remote Docker daemons need no bind mounts.
 FROM runtime AS ci
 ARG GODOT_VERSION
+# Fixed appimagetool release and immutable runtime asset, both checksum verified.
+RUN curl -fL -o /tmp/appimagetool.AppImage \
+    https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
+    && echo 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool.AppImage' | sha256sum -c - \
+    && chmod +x /tmp/appimagetool.AppImage \
+    && cd /opt && /tmp/appimagetool.AppImage --appimage-extract \
+    && mv squashfs-root appimagetool && rm /tmp/appimagetool.AppImage
+RUN curl -fL -H 'Accept: application/octet-stream' -o /opt/appimage-runtime \
+    https://api.github.com/repos/AppImage/type2-runtime/releases/assets/657374641 \
+    && echo '617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46  /opt/appimage-runtime' | sha256sum -c -
 COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 RUN curl -fL -o /tmp/templates.tpz \
     "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" \
     && mkdir -p /root/.local/share/godot/export_templates/4.4.1.stable \
     && unzip -j /tmp/templates.tpz templates/linux_release.x86_64 -d /root/.local/share/godot/export_templates/4.4.1.stable \
     && rm /tmp/templates.tpz
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends file desktop-file-utils
 COPY godot /work/godot
 COPY web /work/web
 COPY docker /work/docker

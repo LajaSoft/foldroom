@@ -16,7 +16,7 @@ Godot port of my game originally created in GPT Sites, with Moza force feedback.
 bash docker/run-ci.sh
 ```
 
-GitHub Actions and GitLab CI run the same Docker pipeline: native regressions, original web tests, JSON round-trip verification, Linux release export and a headless launch of the exported executable. Results and logs are copied to `artifacts/`, including a tarball and SHA-256 checksum. The CI container needs no GPU or wheel. Desktop services continue to use the runtime image.
+GitHub Actions and GitLab CI run the same Docker pipeline: native regressions, original web tests, JSON round-trip verification, Linux release export and a headless launch of the exported executable. Results and logs are copied to `artifacts/`, including a tarball, `FoldRoom-x86_64.AppImage` and SHA-256 checksums. Download the `FoldRoom-AppImage-x86_64` artifact from a successful GitHub Actions run, unpack it, run `chmod +x FoldRoom-x86_64.AppImage`, then `./FoldRoom-x86_64.AppImage`. Without FUSE, use `./FoldRoom-x86_64.AppImage --appimage-extract-and-run`. The CI container needs no GPU or wheel. Desktop services continue to use the runtime image.
 
 See [CI setup and test cases](docs/ci.md) and [Flatpak packaging assessment](docs/flatpak.md).
 
