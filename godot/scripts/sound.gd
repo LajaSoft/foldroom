@@ -1,7 +1,10 @@
 class_name FoldSound
 extends AudioStreamPlayer
 
-var music = preload("res://scripts/music.gd").new()
+const TRACKS := ["ratio drive", "clockwork folktronica", "round folk", "trance style"]
+const MUSIC_SCRIPTS := [preload("res://scripts/music_ratio.gd"), preload("res://scripts/music_conversation.gd"), preload("res://scripts/music_anthem.gd"), preload("res://scripts/music.gd")]
+var track_index := 0
+var music = MUSIC_SCRIPTS[0].new()
 
 var playback: AudioStreamGeneratorPlayback
 var phase := 0.0
@@ -13,6 +16,15 @@ var volume := 0.55
 var voices: Array = []
 var random := RandomNumberGenerator.new()
 var smooth_frequency := 45.0
+
+func select_music(index: int) -> void:
+	if index < 0 or index >= TRACKS.size() or index == track_index:
+		return
+	var next_music = MUSIC_SCRIPTS[index].new()
+	next_music.volume = music.volume
+	next_music.enabled = music.enabled
+	music = next_music
+	track_index = index
 
 func _ready() -> void:
 	var generator := AudioStreamGenerator.new()

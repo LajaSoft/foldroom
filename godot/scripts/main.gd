@@ -335,6 +335,14 @@ func build_setup() -> void:
 			var clear := button("×", row, func(): controls.assign_binding(action, {}, slot))
 			clear.tooltip_text = "Clear this assignment"
 	label("AUDIO", setup_content, 22)
+	var music_row := setting_row(setup_content, "Music track")
+	var music_choice := OptionButton.new()
+	for track_name in Sound.TRACKS:
+		music_choice.add_item(track_name)
+	music_choice.select(sound.track_index)
+	music_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_row.add_child(music_choice)
+	music_choice.item_selected.connect(func(index: int): sound.select_music(index); save_audio_settings())
 	slider(setup_content, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
 	slider(setup_content, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
 	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", setup_content, 14)
@@ -796,6 +804,7 @@ func save_audio_settings() -> void:
 	var config := ConfigFile.new()
 	config.set_value("audio", "volume", sound.volume)
 	config.set_value("audio", "music_volume", sound.music.volume)
+	config.set_value("audio", "music_track", Sound.TRACKS[sound.track_index])
 	var result := config.save("user://audio.cfg")
 	if result != OK:
 		show_message("Audio settings save failed: " + error_string(result))
@@ -808,6 +817,7 @@ func load_audio_settings() -> void:
 	if result != OK:
 		show_message("Audio settings load failed: " + error_string(result))
 		return
+	sound.select_music(Sound.TRACKS.find(config.get_value("audio", "music_track", Sound.TRACKS[0])))
 	sound.music.volume = clampf(float(config.get_value("audio", "music_volume", 0.45)), 0, 1)
 	sound.volume = clampf(float(config.get_value("audio", "volume", 0.55)), 0, 1)
 

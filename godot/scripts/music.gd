@@ -247,20 +247,23 @@ func render_voice(v: Voice, dt: float) -> float:
 		level *= 1.0 - pulse * 0.25
 	return wave * envelope * level
 
+func sequence(dt: float) -> void:
+	if beat <= 0.0:
+		schedule()
+		beat += 0.25
+	beat -= bpm / 60.0 * dt
+	for layer in range(3):
+		if layer_clock[layer] <= 0.0:
+			schedule_layer(layer)
+			layer_clock[layer] += float([2.0, 1.0, 0.5][layer])
+		layer_clock[layer] -= bpm / 60.0 * dt * float(layer_rate[layer])
+
 func sample() -> Vector2:
 	var dt := 1.0 / RATE
 	gain = move_toward(gain, volume if enabled else 0.0, dt * 0.7)
 	pulse *= exp(-dt * 10.0)
 	if enabled:
-		if beat <= 0.0:
-			schedule()
-			beat += 0.25
-		beat -= bpm / 60.0 * dt
-		for layer in range(3):
-			if layer_clock[layer] <= 0.0:
-				schedule_layer(layer)
-				layer_clock[layer] += float([2.0, 1.0, 0.5][layer])
-			layer_clock[layer] -= bpm / 60.0 * dt * float(layer_rate[layer])
+		sequence(dt)
 	var output := Vector2.ZERO
 	var send := Vector2.ZERO
 	var room_input := Vector2.ZERO

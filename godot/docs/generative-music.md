@@ -1,3 +1,65 @@
+# Music selection
+
+Native Godot 4.4+; no new dependencies or external audio assets.
+Settings → AUDIO → Music track offers four synthesized compositions:
+
+1. `ratio drive` (default): fixed 120 BPM sample clock, with fifteen melodic
+   sequencers at /8, /7, /6, /5, /4, /3, /2, x1, x2, x3, x4, x5, x6, x7, x8.
+   Each step is a beat at x1; integer ratios shorten or lengthen that interval.
+   All clocks run while muted. A lane receives a complete recorded motif at its
+   own sixteen-step boundary. Notes keep their pitch when their timing changes.
+   Speed selects overlapping bands using `0.125 + speed * 0.25 / gear`, clamped
+   to /8..x8. Their normalized gains crossfade per sample over 0.65 seconds;
+   lanes fade out as speed leaves their band. No continuous tempo interpolation.
+   At 32 world units/s, gear x2 is requested; at 26 or below, x1 is requested.
+   In between, the previous request is retained. Requests commit on fixed base
+   bar boundaries. The gear clock doubles pulses for drums and all ratio lanes,
+   retaining phase; the base clock, harmony bars and 120 BPM stay unchanged.
+   Ratio selection compensates for the gear, with the same smooth crossfade.
+   Exact rational sample deadlines prevent accumulated drift, including /3,
+   /5 and /7. Melody recording, exchange and modal mapping reuse the composition
+   engine of the preserved track; this is a separate arrangement.
+2. `clockwork folktronica` (preserved version): nested bar and eight-bar sequencers, recording
+   and developing motifs in scale degrees. Three players (brass, rounded lead,
+   muted guitar) take turns leading and answer from the preceding two recordings.
+   Repeats fade by 0.91 per bar; answers use 0.38 per generation. The motif head
+   survives while answers vary pitch, remove notes, exchange notes between tapes,
+   and resolve to the tonal center. Weighted note/rest lengths fill a bar exactly.
+   Strong long notes land on chord tones; short passing notes stay freer.
+   Every eight bars creates a new idea, with occasional recall from four stored
+   motifs. Recordings retain eight independent bars. Every sixteen bars selects
+   Dorian, Aeolian at rest, major at high energy, or harmonic minor under tension.
+   All instruments and harmony use the same degree-to-pitch mapping. No audio or
+   MIDI recording is involved: tapes store symbolic notes, lengths and rests.
+3. `round folk`: an original eight-bar minor-key fanfare, brass-like
+   lead in octaves, sustained stereo chords, muted power chords, eighth-note bass,
+   kick, backbeat snare, hats and cymbal accents. Driving changes energy and tempo;
+   melody stays synchronized to the rock rhythm. No artist or song references.
+4. `trance style`: the existing generative composition, preserved below.
+
+Selection is stored by track name in `user://audio.cfg`. Settings without a saved track start with
+`ratio drive`; existing selections remain selected. Switching starts the chosen composition with a fresh fade-in,
+keeping music volume and playback state. Menus pause music as before; resume the
+room to listen to the selected track.
+
+Validation uses `docker compose run --rm --no-deps godot-test`: default order,
+switching in both directions, retained volume/playback, invalid/repeated selections,
+finite output and headroom, bounded voices, pause release and real-time synthesis.
+Conversation tests additionally exercise 128 bars of motif development, bounded
+recording memory, independent copies, instrument handoff, fading answers, note
+exchange, cadence, modal remapping, twenty seconds of render and paused clocks.
+Ratio tests count every rational clock across eight beats, check fixed BPM,
+phase continuity, gain selection, gear boundaries and hysteresis, and render a
+24-second sequence of rest, acceleration, overspeed and braking. They also check
+per-sample fades, polyphony, finite output, render throughput and paused clocks.
+For listening, select `ratio drive` and increase speed through the bands. Above
+32, listen for the next-bar pulse doubling; below 26, for its next-bar removal.
+Manually select each track in AUDIO, resume, drive/stop, then restart to check the
+saved selection and adjust the independent music volume.
+
+The `clockwork folktronica` arrangement is preserved as a listening reference.
+Future composition experiments should be added as separate tracks.
+
 # Generative driving music — first sketch
 
 Native Godot 4.4+; no additional dependencies or audio assets.
