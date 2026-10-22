@@ -62,6 +62,28 @@ float tubeClearance(int room, vec3 p){
  return clearance;
 }
 
+// Twelve longitudinal ribs, invariant under the portals' quarter turns.
+// Blend connected arm directions at fittings instead of projecting cross rings.
+vec2 tubeRibs(int room,vec3 p,vec3 n){
+ int mask=int(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).r+.5);
+ vec2 ribs=vec2(0.);
+ float total=0.;
+ for(int axis=0;axis<3;axis++){
+  if((mask & (3<<(axis*2)))==0)continue;
+  vec2 radial=axis==0?p.yz:(axis==1?p.zx:p.xy);
+  float radius=length(radial);
+  float weight=(.15+p[axis]*p[axis])*pow(1.-abs(n[axis]),4.)*smoothstep(.15,.65,radius);
+  float angle=atan(radial.y,radial.x+.000001);
+  float phase=angle*12.;
+  float width=max(fwidth(phase),.001);
+  float arc=abs(sin(phase*.5))*2.;
+  float visible=1.-smoothstep(.3,.9,width);
+  ribs+=vec2(1.-smoothstep(.055,.055+width,arc),1.-smoothstep(.12,.48+width,arc))*weight*visible;
+  total+=weight;
+ }
+ return ribs/max(total,.0001);
+}
+
 void fragment(){
  vec2 screen=((vec2(UV.x,1.0-UV.y)*resolution)*2.-resolution)/resolution.y;
  vec3 ray=normalize(forward+right*screen.x*.72+up*screen.y*.72);
@@ -131,13 +153,14 @@ void fragment(){
    if(tubeWall){
      vec3 e=vec3(.03,0.,0.);
      vec3 n=-normalize(vec3(tubeClearance(room,hit+e.xyy)-tubeClearance(room,hit-e.xyy),tubeClearance(room,hit+e.yxy)-tubeClearance(room,hit-e.yxy),tubeClearance(room,hit+e.yyx)-tubeClearance(room,hit-e.yyx)));
+     vec2 ribs=tubeRibs(room,hit,n);
      // Fade unresolved microrelief to prevent shimmer at grazing angles.
      float detail=1.-smoothstep(.35,1.2,length(fwidth(hit*240.)));
      vec3 gradient=aggregateGradient(hit*240.);
      vec3 bump=normalize(n-(gradient-n*dot(n,gradient))*.32*detail);
      vec3 lamp=normalize(vec3(.4,.8,.3));
      float light=.78+.22*abs(dot(bump,lamp));
-     float sheen=pow(max(0.,dot(bump,normalize(lamp-ray))),32.)*.34;
+     float sheen=pow(max(0.,dot(bump,normalize(lamp-ray))),mix(32.,64.,ribs.y))*mix(.34,.95,ribs.y);
      float facing=1.-max(0.,dot(bump,-ray));
      int panelAxis=abs(n.x)>=abs(n.y)&&abs(n.x)>=abs(n.z)?0:(abs(n.y)>=abs(n.z)?1:2);
      int panelFace=panelAxis*2+(n[panelAxis]<0.?1:0);
@@ -145,6 +168,7 @@ void fragment(){
      float luminance=dot(tint,vec3(.2126,.7152,.0722));
      tint=max(vec3(0.),mix(vec3(luminance),tint,1.3));
      vec3 asphalt=mix(vec3(.23,.25,.26),tint*.48,.82);
+     asphalt=mix(asphalt,asphalt*1.3+vec3(.025,.035,.04),ribs.x*.65);
      color=asphalt*light+vec3(sheen+.025*pow(facing,3.));
      color=mix(color,vec3(.07,.105,.12),1.-exp(-distance*.012));
      break;

@@ -24,6 +24,7 @@ var hud: Label
 var target: Label
 var crosshair: Label
 var gravity_pointer: Line2D
+var gravity_square: ColorRect
 var notice: Label
 var menu: PanelContainer
 var menu_content: VBoxContainer
@@ -154,6 +155,12 @@ func build_hud() -> void:
 	crosshair.offset_left = -9
 	crosshair.offset_top = -17
 	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gravity_square = ColorRect.new()
+	gravity_square.position = Vector2(28, 86)
+	gravity_square.size = Vector2(52, 52)
+	gravity_square.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gravity_square.visible = false
+	root.add_child(gravity_square)
 	gravity_pointer = Line2D.new()
 	gravity_pointer.width = 2.0
 	gravity_pointer.default_color = Color("ffdf38")
@@ -716,7 +723,10 @@ func _physics_process(dt: float) -> void:
 	sound.throttle = maxf(0, forward)
 
 func update_gravity_pointer() -> void:
-	gravity_pointer.visible = active and maze.tubes and renderer.camera_distance == 0
+	var overview := renderer.camera_distance > 0
+	gravity_pointer.visible = active and maze.tubes
+	gravity_square.visible = gravity_pointer.visible and overview
+	hud.position.y = 178.0 if gravity_square.visible else 100.0
 	crosshair.modulate = Color.WHITE
 	if not gravity_pointer.visible:
 		return
@@ -724,11 +734,14 @@ func update_gravity_pointer() -> void:
 	var down: Vector3 = -frame.gravityUp
 	var right: Vector3 = frame.forward.cross(frame.up).normalized()
 	var projected := Vector2(down.dot(right), -down.dot(frame.up))
-	gravity_pointer.position = root.size / 2.0 + marker_cursor
-	gravity_pointer.points = PackedVector2Array([Vector2.ZERO, projected.limit_length(1.0) * 18.0])
+	gravity_pointer.position = gravity_square.position + gravity_square.size / 2.0 if overview else root.size / 2.0 + marker_cursor
+	gravity_pointer.width = 4.0 if overview else 2.0
+	var pointer_length := 60.0 if overview else 18.0
+	gravity_pointer.points = PackedVector2Array([Vector2.ZERO, projected.limit_length(1.0) * pointer_length])
 	var alignment := clampf(down.dot(frame.forward), -1.0, 1.0)
 	var tint := Color("55ed78") if alignment >= 0.0 else Color("ff5050")
 	crosshair.modulate = Color.WHITE.lerp(tint, absf(alignment))
+	gravity_square.color = crosshair.modulate
 
 func _process(dt: float) -> void:
 	if dirty:
