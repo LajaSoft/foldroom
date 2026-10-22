@@ -74,7 +74,63 @@ func thin_walls() -> Dictionary:
 			var opposite: Vector3i = source.cell + Vector3i(NORMALS[face])
 			if cells.has(opposite) and rooms[cells[opposite]].links[face ^ 1] == null:
 				result[boundary_key(source.cell, face)] = true
+	# Two folded mouths can expose the same empty diagonal through an
+	# ordinary L-shaped approach, even though neither has a room opposite.
+	# Crossing that edge then selects unrelated transported room frames.
+	for source in rooms:
+		for a in range(6):
+			var first := straight_neighbor(source.id, a)
+			if first < 0:
+				continue
+			for b in range((int(a / 2) + 1) * 2, 6):
+				var second := straight_neighbor(source.id, b)
+				if second < 0:
+					continue
+				var first_fold = rooms[first].links[b]
+				var second_fold = rooms[second].links[a]
+				if first_fold == null or second_fold == null:
+					continue
+				if first_fold.kind == "straight" or second_fold.kind == "straight":
+					continue
+				var edges := [boundary_key(rooms[first].cell, b), boundary_key(rooms[second].cell, a)]
+				edges.sort()
+				result["corner:" + " / ".join(edges)] = true
+	# Validate transported position and orientation around every complete
+	# lattice square, including squares with several folded passages.
+	for source in rooms:
+		for a in range(6):
+			for b in range((int(a / 2) + 1) * 2, 6):
+				var current: int = source.id
+				var position := Vector3.ZERO
+				var rotation := Quaternion.IDENTITY
+				var square: Array[String] = []
+				for direction in [a, b, a ^ 1, b ^ 1]:
+					var face := lattice_face(current, direction)
+					if face < 0:
+						break
+					square.append(cell_key(rooms[current].cell))
+					var link: Dictionary = rooms[current].links[face]
+					position = link.q * (position - NORMALS[face] * HALF) + NORMALS[link.face] * HALF
+					rotation = link.q * rotation
+					current = link.target
+				if square.size() != 4:
+					continue
+				if position.length_squared() < 0.000001 and absf(rotation.w) > 0.99999:
+					continue
+				square.sort()
+				result["folded-loop:" + " / ".join(square)] = true
 	return result
+
+# A neighboring cell may be reached through a rotated portal mouth.
+func lattice_face(room_id: int, direction: int) -> int:
+	var cell: Vector3i = rooms[room_id].cell + Vector3i(NORMALS[direction])
+	if not cells.has(cell):
+		return -1
+	for face in range(6):
+		var link = rooms[room_id].links[face]
+		if link != null and link.target == cells[cell]:
+			return face
+	return -1
 
 func introduces_thin_wall(previous: Dictionary) -> bool:
 	for key in thin_walls():
@@ -127,7 +183,7 @@ func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 		if rooms.size() > previous_count:
 			rooms.pop_back()
 			cells.erase(cell)
-		last_error = "A folded corner must be open on both sides of the wall"
+		last_error = "Folded passages cannot leave an exposed wall or corner"
 		return {}
 	topology_revision += 1
 	next_link += 1

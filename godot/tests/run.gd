@@ -102,6 +102,9 @@ func run() -> void:
 	test_pipe_hall_flare()
 	test_topology()
 	test_corner_rules_and_pruning()
+	test_paired_folded_corner_rule()
+	test_single_fold_square_rule()
+	test_two_fold_square_rule()
 	test_stability()
 	test_asphalt()
 	test_gyro()
@@ -533,6 +536,85 @@ func test_corner_rules_and_pruning() -> void:
 	check(maze.passage_count() == 2 and maze.walls.size() == 2, "Wall counts rebuilt")
 	maze.remove(0, 0)
 	check(maze.prune(actor.room, [actor]).removed == 1, "Prunes a single detached room")
+
+func test_paired_folded_corner_rule() -> void:
+	# All orientations and up/down combinations of the Quick Save's final
+	# action: room 7's +Z fold next to room 9's +X fold around room 8.
+	for a in range(6):
+		for b in range((int(a / 2) + 1) * 2, 6):
+			var axis := 3 - int(a / 2) - int(b / 2)
+			var up: Vector3 = Maze.NORMALS[axis * 2]
+			for first_kind in ["up", "down"]:
+				for second_kind in ["up", "down"]:
+					for reversed_order in [false, true]:
+						var maze := Maze.new()
+						var first := maze.create(0, a, "straight", up)
+						var second := maze.create(0, b, "straight", up)
+						var from: int = first.target if reversed_order else second.target
+						var to: int = second.target if reversed_order else first.target
+						var first_face: int = b if reversed_order else a
+						var second_face: int = a if reversed_order else b
+						check(not maze.create(from, first_face, first_kind, up).is_empty(), "A single folded mouth beside an ordinary corner remains valid")
+						var before := State.export_json(maze, Motion.initial_player(), [], [])
+						var walls := maze.walls.duplicate()
+						var next_link := maze.next_link
+						check(maze.create(to, second_face, second_kind, up).is_empty(), "Second folded mouth at an exposed diagonal is rejected")
+						check(maze.last_error.contains("corner"), "Rejected folded corner explains the constraint")
+						check(State.export_json(maze, Motion.initial_player(), [], []) == before, "Rejected last action preserves rooms and passages")
+						check(maze.walls == walls and maze.next_link == next_link, "Rejected last action preserves wall ownership and link IDs")
+
+func test_single_fold_square_rule() -> void:
+	# Quick Save: 47 -> 37 -> 49 -> 48 are straight; 48 -> 47 is folded.
+	for face in range(6):
+		for direction in range(6):
+			if int(face / 2) == int(direction / 2):
+				continue
+			for side in range(6):
+				if int(side / 2) in [int(direction / 2), int(face / 2)]:
+					continue
+				for last_edge in range(4):
+					var maze := Maze.new()
+					var up: Vector3 = Maze.NORMALS[direction]
+					var cells := [Vector3i.ZERO, Vector3i(Maze.NORMALS[side]), Vector3i(Maze.NORMALS[side] + up), Vector3i(up)]
+					var edges := [[0, side, "straight"], [1, direction, "straight"], [2, side ^ 1, "straight"], [0, face, "up"]]
+					for cell in cells:
+						maze.room(cell)
+					for index in range(4):
+						if index == last_edge:
+							continue
+						var edge: Array = edges[index]
+						var edge_up: Vector3 = up if index == 3 else Maze.NORMALS[((int(edge[1] / 2) + 1) % 3) * 2]
+						check(not maze.create(edge[0], edge[1], edge[2], edge_up).is_empty(), "Each incomplete folded square can be constructed")
+					var before := State.export_json(maze, Motion.initial_player(), [], [])
+					var edge: Array = edges[last_edge]
+					var edge_up: Vector3 = up if last_edge == 3 else Maze.NORMALS[((int(edge[1] / 2) + 1) % 3) * 2]
+					check(maze.create(edge[0], edge[1], edge[2], edge_up).is_empty(), "A square with one folded and three straight passages cannot close")
+					check(State.export_json(maze, Motion.initial_player(), [], []) == before, "Rejected folded square preserves its topology regardless of insertion order")
+
+func test_two_fold_square_rule() -> void:
+	# Quick Save square 37 -> 47 -> 50 -> 53: two straight edges and
+	# two folds whose rotations disagree at the exposed shared edge.
+	for a in range(6):
+		for b in range(6):
+			if int(a / 2) == int(b / 2):
+				continue
+			var third := 3 - int(a / 2) - int(b / 2)
+			for sign_index in range(2):
+				var fold_face := third * 2 + sign_index
+				for last_edge in range(4):
+					var maze := Maze.new()
+					for cell in [Vector3i.ZERO, Vector3i(Maze.NORMALS[a]), Vector3i(Maze.NORMALS[a] + Maze.NORMALS[b]), Vector3i(Maze.NORMALS[b])]:
+						maze.room(cell)
+					var edges := [[0, a, "straight", Maze.NORMALS[b]], [1, fold_face, "up", Maze.NORMALS[b]], [2, fold_face ^ 1, "up", -Maze.NORMALS[a]], [3, b ^ 1, "straight", Maze.NORMALS[a]]]
+					for index in range(4):
+						if index == last_edge:
+							continue
+						var edge: Array = edges[index]
+						check(not maze.create(edge[0], edge[1], edge[2], edge[3]).is_empty(), "Incomplete two-fold square remains constructible")
+					var before := State.export_json(maze, Motion.initial_player(), [], [])
+					var edge: Array = edges[last_edge]
+					check(maze.create(edge[0], edge[1], edge[2], edge[3]).is_empty(), "Two-fold square cannot close with inconsistent transported frames")
+					check(State.export_json(maze, Motion.initial_player(), [], []) == before, "Rejecting the two-fold square is atomic in every orientation and insertion order")
 
 func test_tubes(cases: Array) -> void:
 	for c in cases:
