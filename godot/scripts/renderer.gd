@@ -239,6 +239,7 @@ func sync(maze: FoldMaze, player: Dictionary, balls: Array) -> void:
 	material_ray.set_shader_parameter("eye", frame.p)
 	material_ray.set_shader_parameter("forward", frame.forward)
 	material_ray.set_shader_parameter("up", frame.up)
+	material_ray.set_shader_parameter("gravityUp", frame.gravityUp)
 	material_ray.set_shader_parameter("right", right)
 	material_ray.set_shader_parameter("roomId", frame.room)
 	var visible_balls := balls.duplicate()

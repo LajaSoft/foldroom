@@ -5,6 +5,7 @@ uniform vec3 eye;
 uniform vec3 forward;
 uniform vec3 up;
 uniform vec3 right;
+uniform vec3 gravityUp;
 uniform int roomId;
 uniform bool tubes = false;
 uniform sampler2D room_shapes : filter_nearest, repeat_disable;
@@ -87,6 +88,8 @@ vec2 tubeRibs(int room,vec3 p,vec3 n){
 void fragment(){
  vec2 screen=((vec2(UV.x,1.0-UV.y)*resolution)*2.-resolution)/resolution.y;
  vec3 ray=normalize(forward+right*screen.x*.72+up*screen.y*.72);
+ // Keep sphere lighting aligned with the player's floor through every portal.
+ vec3 ballLight=normalize(gravityUp);
  vec3 p=eye;int room=roomId;float distance=0.;vec3 color=vec3(.035,.055,.060);float rim=0.;
  for(int hop=0;hop<64;hop++){
    vec3 safeRay=vec3(abs(ray.x)<.000001?.000001:ray.x,abs(ray.y)<.000001?.000001:ray.y,abs(ray.z)<.000001?.000001:ray.z);
@@ -121,21 +124,20 @@ void fragment(){
    }
    if(nearestBall>=0){
      vec4 sphere=texelFetch(balls,ivec2(0,nearestBall),0);
-     vec3 ballUp=texelFetch(balls,ivec2(1,nearestBall),0).xyz;
      vec3 normal=normalize(p+ray*nearestDistance-sphere.xyz);
      vec4 spin=texelFetch(balls,ivec2(2,nearestBall),0);
      vec3 localNormal=turn(normal,vec4(-spin.xyz,spin.w));
      vec3 reflected=reflect(ray,normal);
      int reflectionAxis=abs(reflected.x)>abs(reflected.y)&&abs(reflected.x)>abs(reflected.z)?0:(abs(reflected.y)>abs(reflected.z)?1:2);
      int reflectedFace=reflectionAxis*2+(reflected[reflectionAxis]<0.?1:0);
-     float diffuse=.32+.48*max(0.,dot(normal,normalize(ballUp+vec3(.3,.2,.5))));
+     float diffuse=.32+.48*max(0.,dot(normal,ballLight));
      float fresnel=pow(1.-max(0.,dot(normal,-ray)),3.);
      vec3 steel=mix(vec3(.72,.77,.77)*diffuse,colorOf(reflectedFace)*.9,.48+fresnel*.35);
      float band=1.-smoothstep(.12,.15,abs(localNormal.y));
      steel=mix(steel,vec3(.19,.23,.22)*(.7+diffuse),band);
      float seam=1.-smoothstep(.009,.02,abs(abs(localNormal.y)-.135));
      steel=mix(steel,vec3(.97,.8,.38),seam);
-     float specular=pow(max(0.,dot(reflected,normalize(ballUp+vec3(.3,.2,.5)))),80.);
+     float specular=pow(max(0.,dot(reflected,ballLight)),80.);
      color=steel+vec3(1.,.98,.87)*specular*.9;
      color=mix(color,vec3(.07,.105,.12),1.-exp(-(distance+nearestDistance)*.012));
      break;
@@ -146,6 +148,7 @@ void fragment(){
    if(!tubeWall && data.x>.5 && (tubes || border>.008)){
      rim+=exp(-border*150.)*.2;
      vec4 q=roomData(room,face*2+1);
+     ballLight=turn(ballLight,q);
      int destFace=int(data.y+.5);
      ray=turn(ray,q);p=turn(hit-normalOf(face)*3.,q)+normalOf(destFace)*3.+ray*(tubes?.00001:.001);
      room=int(data.x+.5)-1;continue;
