@@ -23,4 +23,6 @@ Media: `docs/media/foldroom-gameplay.mp4` is a silent 28-second excerpt (12–40
 
 ## Gameplay player
 
+`docs/media/current_10_22.mp4` is a 35-second gameplay recording at 640 × 388, encoded H.264 at 60 fps with AAC audio. Its poster is `docs/media/current_10_22.jpg`; it appears first in the player.
+
 The Pages workflow publishes only `docs/gameplay.html` and the video posters. The HTML video player streams the MP4 from the raw GitHub URL with an explicit `video/mp4` source type. Enable GitHub Pages with **Source: GitHub Actions** in repository Settings → Pages. The workflow deploys on relevant pushes to `main` or manual dispatch; the original web game is not published.

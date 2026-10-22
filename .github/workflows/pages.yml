@@ -28,6 +28,7 @@ jobs:
           cp docs/gameplay.html public/index.html
           cp docs/media/rolling-balls.jpg public/media/
           cp docs/media/tube_demo.jpg public/media/
+          cp docs/media/current_10_22.jpg public/media/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
