@@ -96,6 +96,7 @@ func run() -> void:
 	test_round_tube_junctions()
 	test_hall_corner_clearance()
 	test_open_cycle_corners()
+	test_open_hall_columns()
 	test_shared_hall_support_planes()
 	test_shared_hall_has_no_inner_rim()
 	test_pipe_hall_flare()
@@ -765,6 +766,57 @@ func test_open_cycle_corners() -> void:
 	var old := maze.tube_shape_mask(north.target)
 	maze.remove(north.target, 0)
 	check(maze.tube_shape_mask(north.target) != old, "Removing an opening invalidates the local shape cache")
+
+func test_open_hall_columns() -> void:
+	for a in range(6):
+		for b in range((int(a / 2) + 1) * 2, 6):
+			var maze := Maze.new()
+			var axis := 3 - int(a / 2) - int(b / 2)
+			var up: Vector3 = Maze.NORMALS[axis * 2]
+			var first := maze.create(0, a, "straight", up)
+			var second := maze.create(0, b, "straight", up)
+			maze.create(first.target, b, "straight", up)
+			var corner: Vector3 = (Maze.NORMALS[a] + Maze.NORMALS[b]) * 3.0
+			check(maze.tube_clearance(0, corner) < 0, "Incomplete square retains its column")
+			maze.create(second.target, a, "straight", up)
+			check(maze.tube_corner_mask(0) != 0, "Complete square opens its shared corner in every orientation")
+			check(maze.tube_sphere_sample(0, corner, Maze.Pipes.BALL_RADIUS).clearance > Maze.Pipes.BALL_RADIUS, "Sphere crosses the former column")
+			for step in range(21):
+				var point: Vector3 = Maze.NORMALS[a] * 3.0 + Maze.NORMALS[b] * (step * 0.15) + up * 1.2
+				var other := maze.transport(0, a, point)
+				check(absf(maze.tube_clearance(0, point) - maze.tube_clearance(other.room, other.p)) < 0.0001, "Expanded hall surfaces match across each shared mouth")
+			# Former slab edges at either local axis cut through the floor.
+			# Check actual sphere support, not just empty space at mid-height.
+			for height_sign in [-1.0, 1.0]:
+				for step in range(11):
+					var tangent: Vector3 = Maze.NORMALS[a] * (step * 0.15) + Maze.NORMALS[b] * 0.9
+					for point in [tangent, Maze.NORMALS[b] * (step * 0.15) + Maze.NORMALS[a] * 0.9]:
+						var center: Vector3 = point + up * height_sign * (Maze.TUBE_RADIUS - Maze.Pipes.BALL_RADIUS - 0.02)
+						var support := maze.tube_sphere_sample(0, center, Maze.Pipes.BALL_RADIUS)
+						check(support.clearance > Maze.Pipes.BALL_RADIUS, "Hall floor and ceiling have no residual elbow fin at quadrant edges")
+						check(support.normal.dot(up * height_sign) > 0.99, "Hall support normal follows the floor instead of an inward elbow wall")
+			var outer: Vector3 = -Maze.NORMALS[a] * 0.75 - Maze.NORMALS[b] * 0.75
+			check(maze.tube_clearance(0, outer) > 0.5, "Outer hall corner rounds toward the walls instead of folding inward")
+			check(maze.tube_clearance(0, outer * 2.0) < 0, "Rounded outer corner retains a solid boundary")
+			maze.remove(second.target, a)
+			check(maze.tube_corner_mask(0) == 0 and maze.tube_clearance(0, corner) < 0, "Removing a square edge restores its solid corner")
+			check(maze.tube_sphere_sample(0, corner, Maze.Pipes.BALL_RADIUS).clearance < 0, "Sphere cache invalidates when only the hall corner changes")
+	var hall := Maze.new()
+	for y in range(3):
+		for x in range(3):
+			hall.room(Vector3i(x, y, 0))
+	for y in range(3):
+		for x in range(3):
+			var id: int = hall.cells[Vector3i(x, y, 0)]
+			if x < 2:
+				hall.create(id, 0, "straight", Vector3.BACK)
+			if y < 2:
+				hall.create(id, 2, "straight", Vector3.BACK)
+	var center: int = hall.cells[Vector3i(1, 1, 0)]
+	for x in range(-10, 11):
+		for y in range(-10, 11):
+			check(hall.tube_clearance(center, Vector3(x * 0.3, y * 0.3, 0)) > Maze.Pipes.BALL_RADIUS, "3x3 hall has no internal columns")
+	check(hall.tube_clearance(center, Vector3(2.8, 2.8, 1.8)) < 0, "Merged hall retains its ceiling and floor")
 
 func test_shared_hall_support_planes() -> void:
 	var maze := Maze.new()

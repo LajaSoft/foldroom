@@ -33,18 +33,33 @@ vec3 aggregateGradient(vec3 p){
                 mix(mix(c-a,d-b,u.x),mix(g-e,h-f,u.x),u.z),
                 mix(mix(e-a,f-b,u.x),mix(g-c,h-d,u.x),u.y));
 }
-// Two bilinear reads interpolate one precomputed local fitting. No room
-// neighbors, implicit unions, powers or portal transports run in this field.
+// Two bilinear reads interpolate a local fitting. Complete straight squares
+// additionally open their shared corners, using the same field as physics.
 float pipeSlice(int mask,int z,vec2 xy){
  int slice=mask*49+z;
  vec2 pixel=vec2(float(slice%64),float(slice/64))*49.+xy+.5;
  return texture(pipe_catalog,pixel/vec2(3136.,2401.)).r;
 }
 float tubeClearance(int room, vec3 p){
- int mask=int(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).r+.5);
+ vec2 shape=texelFetch(room_shapes,ivec2(room%1024,room/1024),0).rg;
+ int mask=int(shape.r+.5);
  vec3 grid=clamp((p+vec3(3.6))/7.2*48.,vec3(0.),vec3(47.99999));
  int z=int(floor(grid.z));
- return mix(pipeSlice(mask,z,grid.xy),pipeSlice(mask,z+1,grid.xy),fract(grid.z));
+ float clearance=mix(pipeSlice(mask,z,grid.xy),pipeSlice(mask,z+1,grid.xy),fract(grid.z));
+ int corners=int(shape.g+.5);
+ if(corners==0)return clearance;
+ int bit=0;
+ for(int a=0;a<6;a++){
+  for(int b=(a/2+1)*2;b<6;b++){
+   if((corners & (1<<bit))!=0){
+    int axis=3-a/2-b/2;
+    vec3 offset=vec3(min(dot(p,normalOf(a)),0.),min(dot(p,normalOf(b)),0.),p[axis]);
+    clearance=max(clearance,1.65-length(offset));
+   }
+   bit++;
+  }
+ }
+ return clearance;
 }
 
 void fragment(){

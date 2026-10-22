@@ -27,7 +27,7 @@ There are nine nonempty families. The manifest includes every mask's canonical r
 
 The generator prepares all 64 orientations on 49³ grids over ±3.6, providing enough margin for a sphere crossing a face. The gzip archive contains little-endian float32 values in `[mask,z,y,x]` order. At startup Godot uploads the same data to a 2D slice atlas. Each ray step performs two bilinear texture reads; physics performs the equivalent eight-value interpolation. Both operate only on the local mask. Normals are differentiated over a finite interval, with a high-precision sampler to avoid color-boundary noise.
 
-This replaces neighbor-dependent flares, shared-corner bores, iterative surface unions and per-ray topology traversal inside the distance query. Portal transport itself is unchanged. The atlas is included in release exports.
+Complete squares of four straight passages remove their shared columns. Each room caches a 12-bit mask of these open corners alongside its fitting mask. Physics and the shader union the same radius-1.65 dilated quadrants with the catalogue field. This retains flat floor and ceiling at ±1.65 inside the hall and rounds its exterior walls. Dilating the entire quadrant also covers the old elbow surface along its approach; clipping a slab to the quadrant would leave solid fins at the floor and ceiling. Incomplete squares and folded passages retain their fitting surfaces. The masks rebuild after topology changes; no neighbor traversal runs during ray marching. Portal transport itself is unchanged. The atlas is included in release exports.
 
 ## Migration
 

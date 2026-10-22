@@ -241,16 +241,18 @@ func test_shared_corner_floor_render() -> void:
 	maze.create(east.target, 4, "straight", Vector3.UP)
 	maze.tubes = true
 	var player := Motion.initial_player()
-	player.p = Vector3(2.8, 0.0, 0)
-	player.cameraForward = Vector3.FORWARD
-	player.cameraUp = Vector3.UP
+	player.p = Vector3(0.7, 0.7, -0.4)
+	player.cameraForward = Vector3(-1, -1, -0.4).normalized()
+	player.cameraUp = Vector3.BACK
 	renderer.rebuild(maze)
 	renderer.sync(maze, player, [])
 	var actual: Image = await capture()
 	actual.save_png("res://tests/shared-corner-floor-smoke.png")
 	var original: Shader = renderer.material_ray.shader
 	var reference := Shader.new()
-	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", CATALOGUE_REFERENCE + "float tubeClearance(int room, vec3 p){ return referenceCatalogue(room,p);")
+	# Independent world-space rounded rectangle, including the outer corner.
+	var hall_reference := "float tubeClearance(int room, vec3 p){ float field=referenceCatalogue(room,p); if(room>3)return field; vec2 offset=vec2(room==1||room==3?6.:0.,room>=2?6.:0.); vec2 outside=max(abs(p.xy+offset-vec2(3.))-vec2(3.),vec2(0.)); return max(field,1.65-length(vec3(outside,p.z)));"
+	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", CATALOGUE_REFERENCE + hall_reference)
 	renderer.material_ray.shader = reference
 	var expected: Image = await capture()
 	var difference := 0.0

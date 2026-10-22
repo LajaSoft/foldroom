@@ -154,7 +154,7 @@ func rebuild(maze: FoldMaze) -> void:
 	topology_texture.set_image(topology_image)
 	var shape_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() / 1024.0)), false, Image.FORMAT_RGBAF)
 	for room in maze.rooms:
-		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), 0, 0, 0))
+		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), maze.tube_corner_mask(room.id), 0, 0))
 	shape_texture.set_image(shape_image)
 
 func view(maze: FoldMaze, player: Dictionary) -> Dictionary:

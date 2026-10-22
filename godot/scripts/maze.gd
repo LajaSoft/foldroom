@@ -10,6 +10,7 @@ var tubes := false
 var topology_revision := 0
 var pipe_revision := -1
 var pipe_masks := PackedByteArray()
+var hall_corners := PackedInt32Array()
 var rooms: Array = []
 var cells: Dictionary = {}
 var walls: Dictionary = {}
@@ -19,6 +20,7 @@ var impacts: Array = []
 var player_rotation := Quaternion.IDENTITY
 # Only the latest exact sphere query is retained; memory does not grow with travel.
 var sphere_sample_mask := -1
+var sphere_sample_corners := -1
 var sphere_sample_position := Vector3.ZERO
 var sphere_sample_radius := 0.0
 var sphere_sample_result: Dictionary = {}
@@ -245,17 +247,62 @@ static func face_uv(p: Vector3, face: int) -> Vector2:
 func tube_shape_mask(room_id: int) -> int:
 	if pipe_revision != topology_revision:
 		pipe_masks.resize(rooms.size())
+		hall_corners.resize(rooms.size())
 		for source in rooms:
 			var mask := 0
 			for face in range(6):
 				if source.links[face] != null:
 					mask |= 1 << face
 			pipe_masks[source.id] = mask
+			hall_corners[source.id] = open_hall_corners(source.id)
 		pipe_revision = topology_revision
 	return pipe_masks[room_id]
 
+# Only a complete square of ordinary passages can erase its shared column.
+# Folded mouths never establish physical adjacency in the lattice.
+func straight_neighbor(room_id: int, face: int) -> int:
+	var source: Dictionary = rooms[room_id]
+	var link = source.links[face]
+	if link == null or link.kind != "straight" or link.face != (face ^ 1):
+		return -1
+	if rooms[link.target].cell != source.cell + Vector3i(NORMALS[face]):
+		return -1
+	return link.target
+
+func open_hall_corners(room_id: int) -> int:
+	var result := 0
+	var bit := 0
+	for a in range(6):
+		for b in range((int(a / 2) + 1) * 2, 6):
+			var first := straight_neighbor(room_id, a)
+			var second := straight_neighbor(room_id, b)
+			if first >= 0 and second >= 0:
+				var diagonal := straight_neighbor(first, b)
+				if diagonal >= 0 and diagonal == straight_neighbor(second, a):
+					result |= 1 << bit
+			bit += 1
+	return result
+
+func tube_corner_mask(room_id: int) -> int:
+	tube_shape_mask(room_id)
+	return hall_corners[room_id]
+
 func tube_clearance(room_id: int, p: Vector3) -> float:
-	return Pipes.clearance(tube_shape_mask(room_id), p)
+	var clearance := Pipes.clearance(tube_shape_mask(room_id), p)
+	var corners := hall_corners[room_id]
+	if corners == 0:
+		return clearance
+	var bit := 0
+	for a in range(6):
+		for b in range((int(a / 2) + 1) * 2, 6):
+			if corners & (1 << bit):
+				var axis := 3 - int(a / 2) - int(b / 2)
+				# Dilate the open quadrant, including its approach to the outer
+				# wall. A clipped slab leaves the old elbow as a solid fin.
+				var offset := Vector3(minf(p.dot(NORMALS[a]), 0.0), minf(p.dot(NORMALS[b]), 0.0), p[axis])
+				clearance = maxf(clearance, TUBE_RADIUS - offset.length())
+			bit += 1
+	return clearance
 
 func rescale_actor(actor: Dictionary, radius: float) -> void:
 	if not actor.has("radius") or absf(actor.radius - radius) < 0.00001:
@@ -278,7 +325,8 @@ func tube_sample(room_id: int, p: Vector3) -> Dictionary:
 # against the actual surface instead of treating center clearance as its radius.
 func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
 	var mask := tube_shape_mask(room_id)
-	if mask == sphere_sample_mask and p == sphere_sample_position and radius == sphere_sample_radius:
+	var corners := hall_corners[room_id]
+	if mask == sphere_sample_mask and corners == sphere_sample_corners and p == sphere_sample_position and radius == sphere_sample_radius:
 		return sphere_sample_result
 	var center := tube_sample(room_id, p)
 	var direction: Vector3 = center.normal
@@ -298,6 +346,7 @@ func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
 		direction = next
 	var normal := tube_sample(room_id, p + direction * radius)
 	sphere_sample_mask = mask
+	sphere_sample_corners = corners
 	sphere_sample_position = p
 	sphere_sample_radius = radius
 	sphere_sample_result = {"clearance": radius + gap, "normal": normal.normal}
