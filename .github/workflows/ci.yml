@@ -26,3 +26,19 @@ jobs:
             artifacts/FoldRoom-x86_64.AppImage
             artifacts/SHA256SUMS
           if-no-files-found: error
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Export and verify Windows x64 with FFB
+        run: python scripts/build_windows.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FoldRoom-windows-x86_64
+          path: |
+            artifacts/FoldRoom-windows-x86_64.zip
+            artifacts/FoldRoom-windows-SHA256SUMS
+            artifacts/windows-*.log
+          if-no-files-found: error

@@ -91,6 +91,16 @@ func save_config() -> void:
 
 func connect_wheel() -> void:
 	close_wheel()
+	if OS.get_name() == "Windows":
+		var windows_wheel = preload("res://scripts/windows_wheel.gd").new()
+		if not windows_wheel.open(device_path):
+			windows_wheel.close()
+			device_name = windows_wheel.connection_error
+			status_changed.emit(device_name)
+			return
+		wheel = windows_wheel
+		configure_wheel()
+		return
 	if not ClassDB.class_exists("FFBManager"):
 		status_changed.emit("FFB extension missing; build it using docker compose run --rm ffb-build")
 		return
@@ -104,6 +114,9 @@ func connect_wheel() -> void:
 		device_name = "No accessible Moza FFB device"
 		status_changed.emit(device_name)
 		return
+	configure_wheel()
+
+func configure_wheel() -> void:
 	device_name = wheel.get_device_name()
 	wheel.set_inverted(force_inverted)
 	wheel.set_gain(1.0)

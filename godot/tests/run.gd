@@ -30,6 +30,20 @@ class FakeWheel extends RefCounted:
 	func set_inverted(_value: bool) -> void: pass
 	func close() -> void: open = false
 
+class FakeHaptics extends RefCounted:
+	var forces := []
+	var stops := 0
+	var closed := false
+	func supports_constant() -> bool: return true
+	func set_constant_force(value: float) -> void: forces.append(value)
+	func keep_alive() -> void: pass
+	func stop_all() -> void: stops += 1
+	func close() -> void: closed = true
+
+class FakeWindowsWheel extends "res://scripts/windows_wheel.gd":
+	var connected := true
+	func is_open() -> bool: return connected and haptics != null
+
 var failures: Array = []
 var checks := 0
 var largest_error := 0.0
@@ -109,6 +123,7 @@ func run() -> void:
 	test_asphalt()
 	test_gyro()
 	test_controls()
+	test_windows_output()
 	test_native_ffb()
 	test_wheel()
 	test_secondary_bindings()
@@ -1069,3 +1084,31 @@ func test_asphalt() -> void:
 	check(gyro.components.surface == 0.0, "Airborne wheel has no asphalt vibration")
 	gyro.reset()
 	check(gyro.surface_response == 0.0, "Wheel reset clears surface response")
+
+func test_windows_output() -> void:
+	var api = preload("res://scripts/windows_wheel.gd")
+	var names := PackedStringArray(["Other wheel", "Gudsen R3 Racing Wheel and Pedals"])
+	check(api.matching_haptic_index("SDL Gudsen R3 Racing Wheel and Pedals", names) == 1, "Proton SDL name prefix matches the actual haptic wheel")
+	check(api.matching_haptic_index("Gudsen R3 Racing Wheel and Pedals", names) == 1, "Native Windows wheel identity matches directly")
+	check(api.matching_haptic_index("Other", names) == -1, "Partial device names do not select a different wheel")
+	check(api.matching_haptic_index("Other wheel", PackedStringArray(["Other wheel", "Other wheel"])) == -1, "Ambiguous haptic identities are rejected")
+	var wheel := FakeWindowsWheel.new()
+	var motor := FakeHaptics.new()
+	wheel.haptics = motor
+	wheel.update_constant_force(0.3)
+	check(motor.forces.is_empty(), "Windows FFB remains off until started")
+	check(wheel.start_constant_force(), "Windows adapter accepts constant-force capability")
+	wheel.update_constant_force(0.3)
+	check(motor.forces == [0.3], "Windows adapter forwards torque")
+	wheel.set_inverted(true)
+	wheel.update_constant_force(0.2)
+	check(motor.forces[-1] == -0.2, "Windows adapter applies configured direction")
+	wheel.stop_constant_force()
+	wheel.update_constant_force(0.6)
+	check(motor.stops == 1 and motor.forces.size() == 2, "Windows pause stops output and blocks further torque")
+	wheel.start_constant_force()
+	wheel.connected = false
+	wheel.poll()
+	check(motor.closed and wheel.haptics == null and not wheel.running, "Windows USB loss closes effects and clears output")
+	wheel.close()
+	check(motor.stops == 2, "Windows close after disconnect is idempotent")

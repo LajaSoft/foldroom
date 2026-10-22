@@ -46,6 +46,10 @@ var smoke_frames := -1
 var smoke_failed := false
 
 func _ready() -> void:
+	if "--verify-windows-ffb" in OS.get_cmdline_user_args():
+		var wheel_api = preload("res://scripts/windows_wheel.gd")
+		get_tree().quit(0 if wheel_api.verify_extension() else 1)
+		return
 	controls = Controls.new()
 	if "--smoke-test" in OS.get_cmdline_user_args():
 		controls.config_path = "user://smoke-controls.cfg"
@@ -203,8 +207,8 @@ func build_menu() -> void:
 	button("Enter / Resume", menu_content, func(): set_active(true))
 	var row := HBoxContainer.new()
 	menu_content.add_child(row)
-	button("Ball ↔ Walk", row, switch_mode)
-	button("Rooms ↔ Tubes", row, switch_geometry)
+	button("Ball / Walk", row, switch_mode)
+	button("Rooms / Tubes", row, switch_geometry)
 	button("Jump to start", row, jump_start)
 	row = HBoxContainer.new()
 	menu_content.add_child(row)
@@ -274,10 +278,10 @@ func build_setup() -> void:
 	label("MOZA / GYROSCOPE", setup_content, 22)
 	wheel_live = label("", setup_content, 14)
 	wheel_live.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var path_row := setting_row(setup_content, "Device path (blank = Moza)")
+	var path_row := setting_row(setup_content, "Device name filter (blank = Moza)" if OS.get_name() == "Windows" else "Device path (blank = Moza)")
 	var path := LineEdit.new()
 	path.text = controls.device_path
-	path.placeholder_text = "/dev/input/eventN"
+	path.placeholder_text = "Moza / Gudsen device name" if OS.get_name() == "Windows" else "/dev/input/eventN"
 	path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	path_row.add_child(path)
 	button("Connect", path_row, func():

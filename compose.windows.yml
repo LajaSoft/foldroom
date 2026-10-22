@@ -1,0 +1,20 @@
+services:
+  windows-build:
+    image: foldroom-windows-export
+    build:
+      context: .
+      dockerfile: docker/windows/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOME: /tmp
+      WINDOWS_OUTPUT_DIR: /out
+      GODOT_WINDOWS_DIR: /opt/windows-godot
+      GODOT_TEMPLATES_DIR: /opt/windows-templates
+      FFB_SOURCE_DIR: /opt/windows-ffb
+      WINDOWS_WINE_BINARY: /opt/proton/files/lib/wine/x86_64-unix/wine64
+    volumes:
+      - "${STEAM_PROTON_DIR:-${HOME}/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/common/Proton 11.0}:/opt/proton:ro"
+      - ./scripts:/work/scripts:ro
+      - ./godot:/work/godot:ro
+      - ./docker/windows:/work/docker/windows:ro
+      - ./artifacts:/out
