@@ -115,3 +115,129 @@ Measured reference trajectory error on this machine: maximum vector difference a
 The original game was created in GPT Sites by the same author. Its source is preserved in `web/` for reference and regression testing; release builds contain the native Godot game. Original assets retain their names and license notices. The native derivative includes the original AGPL-3.0-or-later license under `godot/LICENSE`; the pinned GitHub FFB project supplies the MIT-licensed extension source and build scripts.
 
 Portal seam regression captures compare a sphere in the same physical pose with its center owned by either adjacent room. All three portal types render identically in this test, with 100% opaque coverage in the central sampled area. The native suite also checks portal images in all 72 orientations, two-slot input learning/persistence/release behavior, legacy config migration and the alternating/decaying collision waveform.
+
+## Native passage scaling
+
+Aim at an existing passage and press `=` to grow or `-` to shrink on crossing.
+The opposite edit first returns the passage to neutral; each face has one of
+three states, −1 / 0 / +1. Both actions support primary and secondary bindings.
+Reverse travel applies the inverse factor. **Setup → Game and audio** contains
+the shared coefficient (default ×1.10, adjustable ×1.01–×2.00) and audio settings.
+
+Each sphere retains its own cumulative scale, clamped to ×0.2–×4.5 of its initial
+radius. At a limit the remaining factor is clamped exactly and further passages
+become neutral. Mouths taper around the local gravity-side floor; portal ray
+traversal carries scale along each visible path, including repeated room visits.
+Linear speed is rotated at a crossing without a scale-dependent boost.
+The HUD shows accumulated scale and the aimed passage's factor. JSON saves
+include the coefficient, signed passage edits and actor scales; older saves
+load with neutral passages and unit actor scale.
+
+No new dependencies: the existing Docker Godot runtime (currently 4.4.1) runs
+the implementation and tests. The native suite covers scale bounds, inverse
+mapping, flat support planes, crossing dynamics and persistence. GPU regression
+compares a scaled sphere at the same seam pose from both owning room frames,
+for straight/up/down links in both room and tube geometry:
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_render.gd
+```
+
+The zoom boundary regression uses `godot/tests/fixtures/zoom-boundary.json`,
+a captured quicksave at minimum scale with rotated gravity. It checks removal
+of the portal frame; native tests also check continuity across a diagonal
+between exit arms and migration of old ×5 saves to the ×4.5 limit.
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_boundary.gd
+```
+
+The round tube zoom regression also checks the full circular mouth under
+straight and folded transport. `zoom_tube_seam.gd` renders a second captured
+quicksave and detects non-finite shading before framebuffer conversion, covering
+both the collar shape and grazing-ray surface classification.
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_tube_seam.gd
+```
+
+Zooming tubes now use one inverse deformation of the fitting, with quintic
+interpolation and zero derivatives at both ends. Zoomed fittings are evaluated
+analytically (the same primitives as the catalogue generator); ordinary fittings
+retain their existing catalogue path. Physics, camera clearance and shading use
+the same deformed surface. Sphere support distances account for the field's
+local gradient rather than mistaking the conservative ray step for a body margin.
+No dependencies or runtime version changes are required.
+
+`zoom-smooth-fitting.json` preserves the reported multi-branch quicksave.
+Native checks cover exact mouth circles, floor support, continuous tangents,
+and driving through that saved passage. The GPU check rejects non-finite shading:
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_smooth_fitting.gd
+```
+
+Geometry reuse is shared across actors and equivalent rooms. The CPU prepares
+at most 64 immutable analytic fitting instruction lists and keeps at most 64
+maze deformation profiles, keyed by fitting openings, hall corners, growing
+mouths, gravity and the effective scale factor. Each profile holds bounded FIFO
+ring caches for exact field points (128), normal samples (64) and sphere queries
+(16). Positions are never quantized. Maze topology or coefficient changes clear
+the dependent profiles, including the last-profile shortcut. Movement cannot
+grow cache memory without a bound. GPU topology and shape textures continue to
+be rebuilt only when the maze/markings are dirty; ray shading stays view dependent.
+
+Native tests compare cached and uncached motion for every sphere at ×5 boost,
+check sharing across identical rooms, invalidation and all memory limits.
+The scene profiler accepts a boost argument and optional `--no-memo`:
+
+```bash
+docker compose run --rm godot-test godot --headless --path /work/godot --script res://tests/profile_scene.gd -- res://tests/fixtures/zoom-smooth-fitting.json 5
+```
+
+On the saved 33-room scene with three NPCs, 1,200 accelerated physics ticks
+improved from mean/p95/max 2.456/5.895/7.870 ms to 1.221/2.032/2.826 ms,
+with the same final player room, position and velocity. These are physics tick
+timings, not whole-frame render timings. No new dependencies are required.
+
+Square mouths also include the neighboring room's perpendicular cuts. The
+neighbor fitting is reflected into the approach and evaluated with transported
+gravity and scale, so both sides have the same aperture. A closed side wall's
+material continues into this cut instead of rendering a one-sided portal face.
+Ball crossing checks test that shared aperture before transferring ownership,
+including fast movement. `zoom-box-seam.json` preserves the reported case:
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_box_seam.gd
+```
+
+Square approach walls continue as complete planes between the opposite shared
+mouth bounds. A neighbor-induced cut changes the wall's slope over the whole
+room instead of adding a short bevel at the mouth; a horizontal slice therefore
+has a trapezoid edge without an intermediate knee. CPU contact uses the same
+normalized planes as the shader's analytic ray-plane intersection. Square plane
+profiles have a separate 64-entry bound and are invalidated with the other maze
+geometry caches. `zoom-box-trapezoid.json` checks the reported camera position;
+native checks sample the entire edge and both sides of it.
+
+```bash
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_box_trapezoid.gd
+```
+
+The square seam check also propagates already-derived neighbor wall planes,
+not just rooms with their own zoom marker. Mouth bounds cover the full vertical
+extent of a neighboring plane. Neighbor constraints are applied in the portal's
+actual approach region so another perpendicular mouth cannot change one side
+of the same interface. CPU contact and GPU ray intersections use the same
+reflected planes. Nested shader loops use texture metadata limits to avoid excessive
+compile-time unrolling by the graphics driver.
+
+`box_seam_audit.gd` checks all 72 directed mouths of the saved maze, six gravity
+axes, two scales and a 5×5 mouth grid including points near the floor/edges:
+21,600 open/solid comparisons. The audit is part of the native suite. The new
+camera capture is `zoom-box-propagated.json`:
+
+```bash
+docker compose run --rm godot-test godot --headless --path /work/godot --script res://tests/box_seam_audit.gd
+docker compose run --rm godot dbus-run-session godot --path /work/godot --display-driver x11 --audio-driver Dummy --script res://tests/zoom_box_propagated.gd
+```

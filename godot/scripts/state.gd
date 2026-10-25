@@ -33,8 +33,8 @@ static func export_json(maze: FoldMaze, player: Dictionary, balls: Array, marks:
 			if link == null or seen.has(link.id):
 				continue
 			seen[link.id] = true
-			passages.append({"a": [room.id, face], "b": [link.target, link.face], "kind": link.kind})
-	return JSON.stringify(encode({"format": "foldroom", "version": 1, "geometry": "tubes" if maze.tubes else "rooms", "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
+			passages.append({"a": [room.id, face], "b": [link.target, link.face], "kind": link.kind, "zoom": link.get("zoom", 0)})
+	return JSON.stringify(encode({"format": "foldroom", "version": 1, "zoomCoefficient": maze.zoom_coefficient, "geometry": "tubes" if maze.tubes else "rooms", "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
 
 func reject(message: String) -> Dictionary:
 	error = message
@@ -63,6 +63,9 @@ static func endpoint(value: Variant, room_count: int) -> bool:
 func actor(source: Variant, count: int, ball: bool, controlled: bool = false) -> Dictionary:
 	if not source is Dictionary or not integer(source.get("room"), 0, count - 1) or not unit(source.get("up")):
 		return reject("Invalid actor room or gravity")
+	var scale_value = source.get("zoomScale", 1.0)
+	if not (scale_value is float or scale_value is int) or not is_finite(float(scale_value)) or scale_value < Maze.MIN_ZOOM or scale_value > 5.0:
+		return reject("Invalid actor zoom scale")
 	var up := vec(source.up)
 	if up.distance_to(Maze.NORMALS[Maze.face_of(up)]) > 1e-6:
 		return reject("Gravity must align with a room axis")
@@ -70,15 +73,17 @@ func actor(source: Variant, count: int, ball: bool, controlled: bool = false) ->
 	var velocity_ok := valid_vector(source.get("velocity"), 3) and vec(source.velocity).length() <= Motion.MAX_SPEED
 	if controlled and (not position_ok or not velocity_ok):
 		return reject("Invalid player position or velocity")
-	var result := {"room": int(source.room), "p": vec(source.p) if position_ok else up * -2.49, "up": up, "velocity": vec(source.velocity) if position_ok and velocity_ok else Vector3.ZERO}
+	var result := {"room": int(source.room), "p": vec(source.p) if position_ok else up * -2.49, "up": up, "velocity": vec(source.velocity) if position_ok and velocity_ok else Vector3.ZERO, "zoomScale": clampf(float(scale_value), Maze.MIN_ZOOM, Maze.MAX_ZOOM)}
 	if ball:
-		if not source.get("radius") in [0.5, Maze.Pipes.BALL_RADIUS] or not unit(source.get("motorAxis")) or not valid_vector(source.get("spin"), 4):
+		if not (source.get("radius") is float or source.get("radius") is int) or not is_finite(float(source.radius)) or (absf(float(source.radius) / scale_value - 0.5) > 0.00001 and absf(float(source.radius) / scale_value - Maze.Pipes.BALL_RADIUS) > 0.00001) or not unit(source.get("motorAxis")) or not valid_vector(source.get("spin"), 4):
 			return reject("Invalid ball")
 		var spin := Quaternion(source.spin[0], source.spin[1], source.spin[2], source.spin[3])
 		if absf(spin.length() - 1.0) > 1e-5:
 			return reject("Invalid ball orientation")
 		var omega_ok := valid_vector(source.get("omega"), 3) and vec(source.omega).length() <= Motion.MAX_SPIN
-		result.merge({"radius": float(source.radius), "omega": vec(source.omega) if omega_ok else Vector3.ZERO, "motorAxis": vec(source.motorAxis), "spin": spin})
+		var radius: float = float(source.radius) * result.zoomScale / float(scale_value)
+		result.p += up * (radius - float(source.radius))
+		result.merge({"radius": radius, "omega": vec(source.omega) if omega_ok else Vector3.ZERO, "motorAxis": vec(source.motorAxis), "spin": spin})
 	if controlled:
 		if not unit(source.get("forward")) or absf(vec(source.forward).dot(up)) > 1e-5 or not (source.get("pitch") is float or source.get("pitch") is int) or not is_finite(float(source.pitch)) or absf(source.pitch) > deg_to_rad(89.0) + 1e-6:
 			return reject("Invalid player view")
@@ -112,6 +117,10 @@ func import_json(text: String) -> Dictionary:
 	if not data.get("geometry", "rooms") in ["rooms", "tubes"]:
 		return reject("Invalid geometry")
 	var maze := Maze.new()
+	var coefficient = data.get("zoomCoefficient", 1.1)
+	if not (coefficient is float or coefficient is int) or not is_finite(float(coefficient)) or coefficient < 1.01 or coefficient > 2.0:
+		return reject("Invalid zoom coefficient")
+	maze.zoom_coefficient = float(coefficient)
 	maze.tubes = data.get("geometry", "rooms") == "tubes"
 	for i in range(data.rooms.size()):
 		var source = data.rooms[i]
@@ -140,6 +149,9 @@ func import_json(text: String) -> Dictionary:
 		var af := int(passage.a[1])
 		var b := int(passage.b[0])
 		var bf := int(passage.b[1])
+		var zoom = passage.get("zoom", 0)
+		if not integer(zoom, -1, 1):
+			return reject("Invalid passage zoom")
 		var kind = passage.get("kind")
 		if not kind in ["straight", "up", "down"] or a == b or maze.rooms[a].links[af] != null or maze.rooms[b].links[bf] != null:
 			return reject("Invalid passage type or occupied face")
@@ -161,8 +173,8 @@ func import_json(text: String) -> Dictionary:
 			boundary_kinds[key] = kind
 			maze.walls[key] = maze.walls.get(key, 0) + 1
 		var q := Maze.rotation_between(normal, direction)
-		maze.rooms[a].links[af] = {"id": maze.next_link, "target": b, "face": bf, "q": q, "kind": kind, "keys": keys}
-		maze.rooms[b].links[bf] = {"id": maze.next_link, "target": a, "face": af, "q": q.inverse(), "kind": kind, "keys": keys}
+		maze.rooms[a].links[af] = {"id": maze.next_link, "target": b, "face": bf, "q": q, "kind": kind, "keys": keys, "zoom": int(zoom)}
+		maze.rooms[b].links[bf] = {"id": maze.next_link, "target": a, "face": af, "q": q.inverse(), "kind": kind, "keys": keys, "zoom": -int(zoom)}
 		maze.next_link += 1
 	if not data.get("player") is Dictionary or not data.player.get("mode", "walk") in ["walk", "ball"]:
 		return reject("Invalid player mode")

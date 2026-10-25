@@ -90,6 +90,15 @@ func run() -> void:
 		quit(1)
 		return
 	var reference: Dictionary = JSON.parse_string(file.get_as_text())
+	test_box_all_mouths()
+	test_box_wall_plane()
+	test_shared_box_mouth()
+	test_cached_fast_scene()
+	test_geometry_memo()
+	test_saved_smooth_passage()
+	test_smooth_zoom_geometry()
+	test_round_zoom_mouth()
+	test_passage_zoom()
 	test_tube_sample_cache()
 	test_tube_third_person_camera()
 	test_third_person_camera()
@@ -1112,3 +1121,282 @@ func test_windows_output() -> void:
 	check(motor.closed and wheel.haptics == null and not wheel.running, "Windows USB loss closes effects and clears output")
 	wheel.close()
 	check(motor.stops == 2, "Windows close after disconnect is idempotent")
+
+func test_passage_zoom() -> void:
+	var maze := Maze.new()
+	var link := maze.create(0, 0, "straight", Vector3.UP)
+	check(maze.adjust_zoom(0, 0, 1), "Passage can grow")
+	check(maze.rooms[link.target].links[link.face].zoom == -1, "Reverse passage shrinks")
+	var p := Vector3(3, -2.5, 0.4)
+	var moved := maze.zoom_transport(0, 0, p, Vector3.UP, 1.0)
+	near_vec(moved.p, Vector3(-3, -2.45, 0.44), "Floor-anchored zoom mapping")
+	var returned := maze.zoom_transport(link.target, link.face, moved.p, Vector3.UP, 1.1)
+	near_vec(returned.p, p, "Zoom mapping round trip")
+	check(is_equal_approx(maze.passage_ratio(0, 0, Maze.MAX_ZOOM), 1.0), "Upper zoom limit is a straight passage")
+	check(is_equal_approx(maze.passage_ratio(link.target, link.face, 0.2), 1.0), "Lower zoom limit is a straight passage")
+	check(is_equal_approx(maze.passage_ratio(0, 0, 4.4), Maze.MAX_ZOOM / 4.4), "Last zoom step clamps exactly")
+	var player := Motion.initial_player()
+	player.p = Vector3(2.999, -2.4, 0)
+	player.velocity = Vector3(2, 0, 0)
+	Motion.step_ball(maze, player, 0.01)
+	check(player.room == link.target and is_equal_approx(player.radius, 0.55), "Physical crossing grows sphere")
+	check(is_equal_approx(player.zoomScale, 1.1), "Actor retains accumulated scale")
+	check(player.velocity.length() < 2.01, "Zoom adds no speed boost")
+	var importer := State.new()
+	var restored := importer.import_json(State.export_json(maze, player, [], []))
+	check(not restored.is_empty(), "Zoom state imports: " + importer.error)
+	if not restored.is_empty():
+		check(restored.maze.rooms[0].links[0].zoom == 1, "Passage zoom persists")
+		check(is_equal_approx(restored.player.zoomScale, 1.1), "Actor scale persists")
+		check(is_equal_approx(restored.maze.zoom_coefficient, 1.1), "Coefficient persists")
+	var throat := maze.zoom_clearance(0, Vector3(3, -3, 0), Vector3.UP, 1.0)
+	check(is_zero_approx(throat), "Zoom throat preserves floor plane")
+	check(maze.adjust_zoom(0, 0, -1) and maze.rooms[0].links[0].zoom == 0, "Opposite edit clears zoom")
+	check(not maze.adjust_zoom(0, 4, 1), "Zoom edit rejects a closed wall")
+
+	for tubes in [false]:
+		maze.tubes = tubes
+		maze.adjust_zoom(0, 0, 1)
+		var floor_height := -Maze.TUBE_RADIUS if tubes else -Maze.HALF
+		var radius := Maze.Pipes.BALL_RADIUS if tubes else 0.5
+		for x in [1.6, 2.0, 2.5, 2.9]:
+			var gap := maze.zoom_clearance(0, Vector3(x, floor_height + radius, 0), Vector3.UP, 1.0)
+			check(gap >= radius - 0.00001, "Taper does not intrude into flat floor support")
+			var actor := {"room": 0, "p": Vector3(x, floor_height + radius, 0), "up": Vector3.UP, "radius": radius, "velocity": Vector3.RIGHT}
+			maze.constrain_zoom(actor)
+			near_vec(actor.p, Vector3(x, floor_height + radius, 0), "Taper adds no ramp", 0.00001)
+		var scale_value := 1.0
+		for crossing in range(80):
+			scale_value *= maze.passage_ratio(0, 0, scale_value)
+		check(is_equal_approx(scale_value, Maze.MAX_ZOOM), "Repeated growth saturates at maximum")
+		for crossing in range(80):
+			scale_value *= maze.passage_ratio(link.target, link.face, scale_value)
+		check(is_equal_approx(scale_value, 0.2), "Repeated shrinking saturates at one fifth")
+	maze.tubes = false
+	var diagonal_a := maze.zoom_clearance(0, Vector3(2.7, -2.70001, 0), Vector3.UP, 1.0)
+	var diagonal_b := maze.zoom_clearance(0, Vector3(2.7, -2.69999, 0), Vector3.UP, 1.0)
+	check(absf(diagonal_a - diagonal_b) < 0.0001, "Zoom wall stays continuous across dominant-axis boundary")
+	var old_player := Motion.initial_player()
+	old_player.zoomScale = 5.0
+	old_player.radius = 2.5
+	old_player.p = Vector3(0, -0.5, 0)
+	var migrated := importer.import_json(State.export_json(Maze.new(), old_player, [], []))
+	check(not migrated.is_empty(), "Old maximum-scale save still imports")
+	if not migrated.is_empty():
+		check(is_equal_approx(migrated.player.zoomScale, 4.5), "Old scale clamps to 4.5")
+		check(is_equal_approx(migrated.player.radius, 2.25), "Old sphere radius follows new maximum")
+		check(is_equal_approx(migrated.player.p.y - migrated.player.radius, -3.0), "Scale migration preserves floor contact")
+
+func test_round_zoom_mouth() -> void:
+	for kind in ["straight", "up", "down"]:
+		var maze := Maze.new()
+		maze.tubes = true
+		var link := maze.create(0, 0, kind, Vector3.UP)
+		maze.adjust_zoom(0, 0, 1)
+		for scale_value in [0.2, 0.22, 1.0, 4.4]:
+			var ratio := maze.passage_ratio(0, 0, scale_value)
+			var anchor := maze.zoom_anchor(0, Vector3.UP)
+			var center := anchor * (1.0 - 1.0 / ratio)
+			for step in range(32):
+				var angle := TAU * step / 32.0
+				var radial := Vector3(0, cos(angle), sin(angle))
+				var p: Vector3 = Vector3.RIGHT * 3.0 + center + radial * Maze.TUBE_RADIUS / ratio
+				check(absf(maze.tube_clearance(0, p, Vector3.UP, scale_value)) < 0.00001, "Round zoom mouth follows entire circular rim")
+				var moved := maze.zoom_transport(0, 0, p, Vector3.UP, scale_value)
+				var offset: Vector3 = moved.p - Maze.NORMALS[link.face] * 3.0
+				check(absf(offset.length() - Maze.TUBE_RADIUS) < 0.00001, "Round zoom mouth maps to destination collar")
+
+func test_smooth_zoom_geometry() -> void:
+	var maze := Maze.new()
+	maze.tubes = true
+	var link := maze.create(0, 0, "straight", Vector3.UP)
+	maze.adjust_zoom(0, 0, 1)
+	for coefficient in [1.1, 1.25, 2.0]:
+		maze.zoom_coefficient = coefficient
+		for scale_value in [0.2, 1.0]:
+			var ratio := maze.passage_ratio(0, 0, scale_value)
+			var anchor := maze.zoom_anchor(0, Vector3.UP)
+			for step in range(32):
+				var angle := TAU * step / 32.0
+				var radial := Vector3(0, cos(angle), sin(angle))
+				var p := Vector3.RIGHT * 3.0 + anchor * (1.0 - 1.0 / ratio) + radial * Maze.TUBE_RADIUS / ratio
+				check(absf(maze.tube_clearance(0, p, Vector3.UP, scale_value)) < 0.00001, "Deformed analytic fitting matches portal circle")
+			for x in [1.4, 1.5, 1.6, 2.1, 2.8, 3.0]:
+				var floor_point := Vector3(x, -Maze.TUBE_RADIUS, 0)
+				check(absf(maze.tube_clearance(0, floor_point, Vector3.UP, scale_value)) < 0.00001, "Functional tube deformation preserves floor")
+				var actor := Motion.create_ball(0)
+				actor.radius = Maze.Pipes.BALL_RADIUS * scale_value
+				actor.zoomScale = scale_value
+				actor.p = floor_point + Vector3.UP * (actor.radius + 0.003)
+				var before: Vector3 = actor.p
+				maze.constrain_actor(actor)
+				near_vec(actor.p, before, "Functional tube has no collision threshold", 0.00001)
+		for boundary in [1.5, 3.0]:
+			var p := Vector3(boundary, 0.5, 0.2)
+			var a := maze.tube_deformation(0, p - Vector3.RIGHT * 0.001, Vector3.UP, 1.0)
+			var b := maze.tube_deformation(0, p, Vector3.UP, 1.0)
+			var c := maze.tube_deformation(0, p + Vector3.RIGHT * 0.001, Vector3.UP, 1.0)
+			check((Vector2(a.y, a.z) - Vector2(b.y, b.z) * 2.0 + Vector2(c.y, c.z)).length() < 0.00001, "Deformation joins with continuous tangent")
+
+func test_saved_smooth_passage() -> void:
+	var importer := State.new()
+	var saved := importer.import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-smooth-fitting.json"))
+	check(not saved.is_empty(), "Smooth fitting quicksave imports: " + importer.error)
+	if saved.is_empty():
+		return
+	var maze: FoldMaze = saved.maze
+	var player: Dictionary = saved.player
+	var origin: int = player.room
+	var target: int = maze.rooms[origin].links[0].target
+	player.cameraForward = Vector3.RIGHT
+	player.cameraUp = player.up
+	player.velocity = Vector3.ZERO
+	player.omega = Vector3.ZERO
+	for tick in range(900):
+		Motion.drive(maze, player, 1.0 / 120.0, 1.0, 0.0)
+		if player.room != origin:
+			break
+	check(player.room == target, "Player drives through saved zoom junction without a threshold")
+	check(is_equal_approx(player.zoomScale, 0.242), "Saved junction applies one scale transition")
+
+func test_geometry_memo() -> void:
+	var maze := Maze.new()
+	maze.tubes = true
+	maze.create(0, 0, "straight", Vector3.UP)
+	var other := maze.room(Vector3i(0, 2, 0))
+	maze.create(other.id, 0, "straight", Vector3.UP)
+	maze.adjust_zoom(0, 0, 1)
+	maze.adjust_zoom(other.id, 0, 1)
+	var p := Vector3(2.8, -0.8, 0.4)
+	var first := maze.tube_sphere_sample(0, p, 0.33)
+	var misses := maze.geometry_cache_misses
+	var builds := maze.geometry_profile_builds
+	var shared := maze.tube_sphere_sample(other.id, p, 0.33)
+	check(first == shared and shared.is_read_only(), "Equivalent rooms share immutable sphere queries")
+	check(maze.geometry_cache_misses == misses and maze.geometry_profile_builds == builds, "Second actor reuses compiled fitting and exact query")
+	for query in [[p, 0.4, Vector3.UP, 1.0], [p + Vector3.RIGHT * 0.01, 0.33, Vector3.UP, 1.0], [p, 0.33, Vector3.BACK, 1.0], [p, 0.33, Vector3.UP, 4.4]]:
+		var cached := maze.tube_sphere_sample(0, query[0], query[1], query[2], query[3])
+		maze.geometry_memo_enabled = false
+		var direct := maze.tube_sphere_sample(0, query[0], query[1], query[2], query[3])
+		maze.geometry_memo_enabled = true
+		check(cached == direct, "Cache preserves position, radius, gravity and saturated scale exactly")
+	maze.zoom_coefficient = 1.25
+	var changed := maze.tube_sphere_sample(0, p, 0.33)
+	maze.geometry_memo_enabled = false
+	check(changed == maze.tube_sphere_sample(0, p, 0.33), "Coefficient changes invalidate exact queries")
+	maze.geometry_memo_enabled = true
+	maze.create(0, 5, "straight", Vector3.UP)
+	changed = maze.tube_sphere_sample(0, p, 0.33)
+	maze.geometry_memo_enabled = false
+	check(changed == maze.tube_sphere_sample(0, p, 0.33), "Topology changes invalidate fitting and queries")
+	maze.geometry_memo_enabled = true
+	var profile := maze.geometry_profile(0, Vector3.UP, 1.0)
+	for sample in range(Maze.FIELD_CACHE_LIMIT + 8):
+		maze.tube_sample(0, p + Vector3.RIGHT * (sample * 0.0001))
+	for sample in range(Maze.SPHERE_CACHE_LIMIT + 8):
+		maze.tube_sphere_sample(0, p, 0.33 + sample * 0.001)
+	check(profile.fields.size() <= Maze.FIELD_CACHE_LIMIT and profile.samples.size() <= Maze.SAMPLE_CACHE_LIMIT and profile.spheres.size() <= Maze.SPHERE_CACHE_LIMIT, "Exact memo memory is bounded during movement")
+	for sample in range(Maze.GEOMETRY_PROFILE_LIMIT + 8):
+		maze.geometry_profile(0, Vector3.UP, 4.1 + sample * 0.001)
+	check(maze.geometry_profiles.size() <= Maze.GEOMETRY_PROFILE_LIMIT, "Fitting profile memory is bounded across scale histories")
+	for mask in range(64):
+		Maze.Pipes.analytic_plan(mask)
+	check(Maze.Pipes.analytic_plans.size() == 64, "Analytic instruction cache contains at most 64 fitting masks")
+
+func test_cached_fast_scene() -> void:
+	var main_script = load("res://scripts/main.gd")
+	var source := FileAccess.get_file_as_string("res://tests/fixtures/zoom-smooth-fitting.json")
+	var games := []
+	for memo_enabled in [false, true]:
+		var state := State.new().import_json(source)
+		var game = main_script.new()
+		game.maze = state.maze
+		game.maze.geometry_memo_enabled = memo_enabled
+		game.player = state.player
+		game.balls = state.balls
+		games.append(game)
+	for tick in range(240):
+		for game in games:
+			game.maze.impacts.clear()
+			game.step_world(1.0 / 120.0, 1.0, 0.0, 5.0)
+	var direct: Array = [games[0].player] + games[0].balls
+	var cached: Array = [games[1].player] + games[1].balls
+	for index in range(direct.size()):
+		check(direct[index].room == cached[index].room, "Cached fast scene preserves every actor room")
+		near_vec(cached[index].p, direct[index].p, "Cached fast scene preserves every actor position", 0.000001)
+		near_vec(cached[index].velocity, direct[index].velocity, "Cached fast scene preserves every actor velocity", 0.000001)
+		check(direct[index].radius == cached[index].radius, "Cached fast scene preserves every actor radius")
+	for game in games:
+		game.free()
+
+func test_shared_box_mouth() -> void:
+	var saved := State.new().import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-box-seam.json"))
+	check(not saved.is_empty(), "Square seam quicksave imports")
+	if saved.is_empty():
+		return
+	var maze: FoldMaze = saved.maze
+	var up := Vector3.DOWN
+	var source := Vector3(2.5, 2.5, -3.0)
+	check(maze.local_zoom_clearance(0, source, up, 0.2) > 0, "Regression source room alone has no wall at the reported strip")
+	check(maze.zoom_clearance(0, source, up, 0.2) < 0, "Neighbor clipping is now solid from the source side")
+	for x in [-2.5, 0.0, 1.4, 1.6, 2.5]:
+		for y in [-2.5, 0.0, 2.5]:
+			var p := Vector3(x, y, -3.0)
+			var moved := maze.zoom_transport(0, 5, p, up, 0.2)
+			var first := maze.zoom_clearance(0, p, up, 0.2)
+			var second := maze.zoom_clearance(moved.room, moved.p, up, 0.2)
+			check((first >= -0.0001) == (second >= -0.0001), "Both sides agree on the open square portal section")
+	var blocked := Motion.initial_player()
+	blocked.up = up
+	blocked.radius = 0.1
+	blocked.zoomScale = 0.2
+	blocked.p = Vector3(2.5, 2.5, -2.99)
+	var before: Vector3 = blocked.p
+	maze.constrain_zoom(blocked)
+	check(blocked.p.distance_to(before) > 0.05, "Source-side contact blocks the formerly ghost wall")
+	check(maze.zoom_clearance(0, blocked.p, up, 0.2) >= blocked.radius - 0.0001, "Shared wall resolves source-side penetration")
+	var player := Motion.initial_player()
+	player.up = up
+	player.p = Vector3(0, 2.8, -2.99)
+	player.velocity = Vector3.FORWARD * 2.0
+	player.radius = 0.1
+	player.zoomScale = 0.2
+	Motion.step_ball(maze, player, 0.01)
+	check(player.room == maze.rooms[0].links[5].target, "Open portion of shared square mouth remains traversable")
+
+	var rushing := Motion.initial_player()
+	rushing.up = up
+	rushing.radius = 0.1
+	rushing.zoomScale = 0.2
+	rushing.p = Vector3(2.5, 2.5, -2.6)
+	rushing.velocity = Vector3.FORWARD * 40.0
+	Motion.step_ball(maze, rushing, 0.01)
+	check(rushing.room == 0, "Fast crossing cannot teleport through the shared square wall")
+	check(maze.zoom_clearance(0, rushing.p, up, 0.2) >= rushing.radius - 0.0001, "Fast shared-wall collision finishes outside solid geometry")
+
+func test_box_wall_plane() -> void:
+	var saved := State.new().import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-box-trapezoid.json"))
+	check(not saved.is_empty(), "Trapezoid quicksave imports")
+	if saved.is_empty():
+		return
+	var maze: FoldMaze = saved.maze
+	var up := Vector3.DOWN
+	var negative := maze.shared_mouth_bound(0, 5, 0, up, 0.2)
+	var positive := maze.shared_mouth_bound(0, 4, 0, up, 0.2)
+	check(negative < positive, "Reported wall has different incoming and outgoing corner positions")
+	for step in range(25):
+		var t := step / 24.0
+		var p := Vector3(lerpf(negative, positive, t), 0.0, lerpf(-3.0, 3.0, t))
+		check(absf(maze.zoom_clearance(0, p, up, 0.2)) < 0.0001, "Entire red wall follows one straight trapezoid edge")
+		check(maze.zoom_clearance(0, p - Vector3.RIGHT * 0.01, up, 0.2) > 0, "Inside of sloped wall stays open")
+		check(maze.zoom_clearance(0, p + Vector3.RIGHT * 0.01, up, 0.2) < 0, "Outside of sloped wall stays solid")
+
+func test_box_all_mouths() -> void:
+	var saved := State.new().import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-box-propagated.json"))
+	check(not saved.is_empty(), "Propagated square-wall quicksave imports")
+	if saved.is_empty():
+		return
+	var audit_script = load("res://tests/box_seam_audit.gd")
+	var report: Dictionary = audit_script.inspect(saved.maze)
+	checks += int(report.checks)
+	check(report.mismatches == 0, "All directed seams, gravity axes and near-floor points agree: " + str(report.examples))

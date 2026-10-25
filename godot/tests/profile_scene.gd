@@ -19,17 +19,20 @@ func _initialize() -> void:
 	game.maze = state.maze
 	game.player = state.player
 	game.balls = state.balls
+	var boost := float(args[1]) if args.size() > 1 else 1.0
+	game.maze.geometry_memo_enabled = not "--no-memo" in args
 	var times: Array[int] = []
 	for tick in range(1200):
 		game.maze.impacts.clear()
 		var start := Time.get_ticks_usec()
-		game.step_world(1.0 / 120.0, 1.0, 0.0, 1.0)
+		game.step_world(1.0 / 120.0, 1.0, 0.0, boost)
 		times.append(Time.get_ticks_usec() - start)
 	var total := 0
 	for time in times:
 		total += time
 	times.sort()
 	print("SCENE PHYSICS: ticks=", times.size(), " mean_us=", total / float(times.size()), " p95_us=", times[int(times.size() * 0.95)], " max_us=", times.back())
+	print("GEOMETRY CACHE: profiles=", game.maze.geometry_profiles.size(), " builds=", game.maze.geometry_profile_builds, " field_hits=", game.maze.geometry_cache_hits, " field_misses=", game.maze.geometry_cache_misses, " sample_hits=", game.maze.geometry_sample_hits, " sphere_hits=", game.maze.geometry_sphere_hits)
 	print("FINAL PLAYER: ", game.player.room, " ", game.player.p, " ", game.player.velocity)
 	game.free()
 	quit()

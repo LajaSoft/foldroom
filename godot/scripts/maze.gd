@@ -6,10 +6,63 @@ const MAX_ROOMS := 10000
 const NORMALS := [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
 const Pipes = preload("res://scripts/pipe_catalog.gd")
 const TUBE_RADIUS := Pipes.RADIUS
+const MIN_ZOOM := 0.2
+const MAX_ZOOM := 4.5
+class ExactMemo extends RefCounted:
+	var values := {}
+	var slots: Array = []
+	var cursor := 0
+	var capacity: int
+
+	func _init(limit: int) -> void:
+		capacity = limit
+
+	func has(key: Variant) -> bool:
+		return values.has(key)
+
+	func fetch(key: Variant) -> Variant:
+		return values[key]
+
+	func size() -> int:
+		return values.size()
+
+	func put(key: Variant, value: Variant) -> void:
+		if values.has(key):
+			values[key] = value
+			return
+		if slots.size() < capacity:
+			slots.append(key)
+		else:
+			values.erase(slots[cursor])
+			slots[cursor] = key
+			cursor = (cursor + 1) % capacity
+		values[key] = value
+
+const GEOMETRY_PROFILE_LIMIT := 64
+const FIELD_CACHE_LIMIT := 128
+const SAMPLE_CACHE_LIMIT := 64
+const SPHERE_CACHE_LIMIT := 16
+var geometry_memo_enabled := true
+var geometry_profiles := {}
+var box_profiles := {}
+var geometry_cache_revision := -1
+var geometry_cache_coefficient := -1.0
+var geometry_last_room := -1
+var geometry_last_up := Vector3.ZERO
+var geometry_last_scale := 0.0
+var geometry_last_profile := {}
+var geometry_cache_hits := 0
+var geometry_cache_misses := 0
+var geometry_sample_hits := 0
+var geometry_sphere_hits := 0
+var geometry_profile_builds := 0
+var zoom_coefficient := 1.1
 var tubes := false
 var topology_revision := 0
 var pipe_revision := -1
 var pipe_masks := PackedByteArray()
+var zoom_masks := PackedByteArray()
+var geometry_signatures: Array[Vector3i] = []
 var hall_corners := PackedInt32Array()
 var rooms: Array = []
 var cells: Dictionary = {}
@@ -270,6 +323,160 @@ func transport(room_id: int, face: int, p: Vector3, vectors: Array = []) -> Dict
 		rotated.append(link.q * v)
 	return {"room": link.target, "p": link.q * (p - NORMALS[face] * HALF) + NORMALS[link.face] * HALF, "vectors": rotated}
 
+# Scale is actor history, never a property shared by all visits to a room.
+func passage_ratio(room_id: int, face: int, scale_value: float = 1.0) -> float:
+	var link = rooms[room_id].links[face]
+	if link == null:
+		return 1.0
+	return clampf(scale_value * pow(zoom_coefficient, link.get("zoom", 0)), MIN_ZOOM, MAX_ZOOM) / scale_value
+
+func adjust_zoom(room_id: int, face: int, delta: int) -> bool:
+	var link = rooms[room_id].links[face]
+	if link == null:
+		last_error = "Aim at an existing passage"
+		return false
+	link.zoom = clampi(link.get("zoom", 0) + delta, -1, 1)
+	rooms[link.target].links[link.face].zoom = -link.zoom
+	topology_revision += 1
+	return true
+
+func zoom_anchor(face: int, up: Vector3) -> Vector3:
+	var transverse: Vector3 = up - NORMALS[face] * up.dot(NORMALS[face])
+	return -transverse * (TUBE_RADIUS if tubes else HALF)
+
+func zoom_transport(room_id: int, face: int, p: Vector3, up: Vector3, scale_value: float) -> Dictionary:
+	var ratio := passage_ratio(room_id, face, scale_value)
+	var link: Dictionary = rooms[room_id].links[face]
+	var offset: Vector3 = p - NORMALS[face] * HALF
+	var mapped: Vector3 = zoom_anchor(face, up) + (offset - zoom_anchor(face, up)) * ratio
+	return {"room": link.target, "p": link.q * mapped + NORMALS[link.face] * HALF, "ratio": ratio}
+
+# Intersect all active mouth constraints. Selecting the dominant axis creates
+# discontinuous walls where two coordinates exchange order near a corner.
+func local_zoom_clearance(room_id: int, p: Vector3, up: Vector3, scale_value: float) -> float:
+	var gap := 100.0
+	var radius := HALF
+	for face in range(6):
+		var along: float = p.dot(NORMALS[face])
+		var ratio := passage_ratio(room_id, face, scale_value)
+		if ratio <= 1.000001 or along <= 1.5:
+			continue
+		var width := lerpf(1.0, 1.0 / ratio, clampf((along - 1.5) / 1.5, 0, 1))
+		var anchor := zoom_anchor(face, up)
+		var center := anchor * (1.0 - width)
+		var taper := (1.0 - 1.0 / ratio) / 1.5
+		for axis in range(3):
+			if axis == int(face / 2):
+				continue
+			var upper_slope: float = (radius - anchor[axis]) * taper
+			var lower_slope: float = (-radius - anchor[axis]) * taper
+			gap = minf(gap, (center[axis] + radius * width - p[axis]) / sqrt(1.0 + upper_slope * upper_slope))
+			gap = minf(gap, (p[axis] - center[axis] + radius * width) / sqrt(1.0 + lower_slope * lower_slope))
+	return gap
+
+# A portal section belongs to both rooms. Reflect the neighbor's fitting into
+# the approach, so a cut caused by its perpendicular exit also has a front wall.
+func zoom_clearance(room_id: int, p: Vector3, up: Vector3, scale_value: float) -> float:
+	var gap := local_zoom_clearance(room_id, p, up, scale_value)
+	var face := face_of(p)
+	var along: float = p.dot(NORMALS[face])
+	var link = rooms[room_id].links[face]
+	if along > 1.5 and link != null:
+		var moved := zoom_transport(room_id, face, p, up, scale_value)
+		var normal: Vector3 = NORMALS[link.face]
+		var mirrored: Vector3 = moved.p - normal * 2.0 * (moved.p.dot(normal) - HALF)
+		var neighbor_up: Vector3 = link.q * up
+		var neighbor_scale := clampf(scale_value * moved.ratio, MIN_ZOOM, MAX_ZOOM)
+		gap = minf(gap, local_zoom_clearance(link.target, mirrored, neighbor_up, neighbor_scale) / moved.ratio)
+		for plane: Plane in box_wall_planes(link.target, neighbor_up, neighbor_scale):
+			gap = minf(gap, -plane.distance_to(mirrored) / moved.ratio)
+	for plane: Plane in box_wall_planes(room_id, up, scale_value):
+		gap = minf(gap, -plane.distance_to(p))
+	return gap
+
+# Bounds of a wall edge at a mouth, in that room's coordinates.
+func local_mouth_bound(room_id: int, mouth: int, wall: int, up: Vector3, scale_value: float) -> float:
+	var ratio := passage_ratio(room_id, mouth, scale_value)
+	var bound := HALF
+	if ratio > 1.000001:
+		bound = HALF / ratio + NORMALS[wall].dot(zoom_anchor(mouth, up)) * (1.0 - 1.0 / ratio)
+	if passage_ratio(room_id, wall, scale_value) > 1.000001 and HALF - NORMALS[mouth].dot(zoom_anchor(wall, up)) > 0.000001:
+		bound = minf(bound, 1.5)
+	return bound
+
+func shared_mouth_bound(room_id: int, mouth: int, wall: int, up: Vector3, scale_value: float, propagated: bool = true) -> float:
+	var bound := local_mouth_bound(room_id, mouth, wall, up, scale_value)
+	var link = rooms[room_id].links[mouth]
+	if link == null:
+		return bound
+	var ratio := passage_ratio(room_id, mouth, scale_value)
+	var neighbor_wall := face_of(link.q * NORMALS[wall])
+	var neighbor_bound := local_mouth_bound(link.target, link.face, neighbor_wall, link.q * up, clampf(scale_value * ratio, MIN_ZOOM, MAX_ZOOM))
+	var shift: float = NORMALS[wall].dot(zoom_anchor(mouth, up)) * (1.0 - ratio)
+	bound = minf(bound, (neighbor_bound - shift) / ratio)
+	if not propagated:
+		return bound
+	var neighbor_up: Vector3 = link.q * up
+	var neighbor_scale := clampf(scale_value * ratio, MIN_ZOOM, MAX_ZOOM)
+	for plane: Plane in box_wall_planes(link.target, neighbor_up, neighbor_scale, false, neighbor_wall):
+		var rate := plane.normal.dot(NORMALS[neighbor_wall])
+		if rate <= 0.000001:
+			continue
+		var cross_axis := 3 - int(neighbor_wall / 2) - int(link.face / 2)
+		var edge := (plane.d - plane.normal.dot(NORMALS[link.face] * HALF) - absf(plane.normal[cross_axis]) * HALF) / rate
+		bound = minf(bound, (edge - shift) / ratio)
+	return bound
+
+# A closed wall connects its two end sections as one plane, not a cube wall
+# followed by a bevel. In a horizontal slice these are trapezoid edges.
+func box_wall_planes(room_id: int, up: Vector3, scale_value: float, propagated: bool = true, wall_filter: int = -1) -> Array:
+	ensure_geometry_cache()
+	var key := [room_id, up, scale_value, propagated, wall_filter]
+	if box_profiles.has(key):
+		return box_profiles[key]
+	var planes := []
+	for wall in range(6):
+		if wall_filter >= 0 and wall != wall_filter:
+			continue
+		if rooms[room_id].links[wall] != null:
+			continue
+		for axis in range(3):
+			if axis == int(wall / 2):
+				continue
+			var positive := shared_mouth_bound(room_id, axis * 2, wall, up, scale_value, propagated)
+			var negative := shared_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value, propagated)
+			var own_positive := local_mouth_bound(room_id, axis * 2, wall, up, scale_value)
+			var own_negative := local_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value)
+			if positive >= own_positive - 0.000001 and negative >= own_negative - 0.000001:
+				continue
+			if minf(positive, negative) >= HALF - 0.000001:
+				continue
+			var slope := (negative - positive) / (2.0 * HALF)
+			var normal: Vector3 = NORMALS[wall] + NORMALS[axis * 2] * slope
+			planes.append(Plane(normal.normalized(), (positive + negative) * 0.5 / normal.length()))
+	planes.make_read_only()
+	remember(box_profiles, key, planes, GEOMETRY_PROFILE_LIMIT)
+	return planes
+
+func constrain_zoom(actor: Dictionary) -> void:
+	var radius: float = actor.get("radius", 0.32)
+	for iteration in range(8):
+		var gap := zoom_clearance(actor.room, actor.p, actor.up, actor.get("zoomScale", 1.0))
+		if gap >= radius - 0.00001:
+			return
+		var gradient := Vector3.ZERO
+		for axis in range(3):
+			var offset := Vector3.ZERO
+			offset[axis] = 0.001
+			gradient[axis] = (zoom_clearance(actor.room, actor.p + offset, actor.up, actor.get("zoomScale", 1.0)) - zoom_clearance(actor.room, actor.p - offset, actor.up, actor.get("zoomScale", 1.0))) / 0.002
+		if gradient.length_squared() < 0.000001:
+			return
+		var normal := gradient.normalized()
+		actor.p += normal * (radius - gap + 0.001)
+		var inward: float = actor.velocity.dot(normal)
+		if inward < 0:
+			actor.velocity -= normal * inward
+
 func passage_count() -> int:
 	var count := 0
 	for r in rooms:
@@ -303,14 +510,24 @@ static func face_uv(p: Vector3, face: int) -> Vector2:
 func tube_shape_mask(room_id: int) -> int:
 	if pipe_revision != topology_revision:
 		pipe_masks.resize(rooms.size())
+		zoom_masks.resize(rooms.size())
+		geometry_signatures.resize(rooms.size())
 		hall_corners.resize(rooms.size())
 		for source in rooms:
 			var mask := 0
+			var zoom_mask := 0
+			var growing_mask := 0
 			for face in range(6):
 				if source.links[face] != null:
 					mask |= 1 << face
+					if source.links[face].get("zoom", 0) != 0:
+						zoom_mask |= 1 << face
+					if source.links[face].get("zoom", 0) > 0:
+						growing_mask |= 1 << face
 			pipe_masks[source.id] = mask
+			zoom_masks[source.id] = zoom_mask
 			hall_corners[source.id] = open_hall_corners(source.id)
+			geometry_signatures[source.id] = Vector3i(mask, hall_corners[source.id], growing_mask)
 		pipe_revision = topology_revision
 	return pipe_masks[room_id]
 
@@ -343,8 +560,92 @@ func tube_corner_mask(room_id: int) -> int:
 	tube_shape_mask(room_id)
 	return hall_corners[room_id]
 
-func tube_clearance(room_id: int, p: Vector3) -> float:
-	var clearance := Pipes.clearance(tube_shape_mask(room_id), p)
+static func smooth_taper(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return t * t * t * (t * (6.0 * t - 15.0) + 10.0)
+
+func room_has_zoom(room_id: int) -> bool:
+	tube_shape_mask(room_id)
+	return zoom_masks[room_id] != 0
+
+# Exact FIFO memo tables have hard bounds; no spatial rounding changes the wall.
+static func remember(cache: Dictionary, key: Variant, value: Variant, limit: int) -> void:
+	if cache.size() >= limit and not cache.has(key):
+		cache.erase(cache.keys()[0])
+	cache[key] = value
+
+func ensure_geometry_cache() -> void:
+	if geometry_cache_revision != topology_revision or geometry_cache_coefficient != zoom_coefficient:
+		geometry_profiles.clear()
+		geometry_last_profile = {}
+		geometry_cache_revision = topology_revision
+		geometry_cache_coefficient = zoom_coefficient
+		box_profiles.clear()
+
+func geometry_profile(room_id: int, up: Vector3, scale_value: float) -> Dictionary:
+	ensure_geometry_cache()
+	if not geometry_last_profile.is_empty() and geometry_last_room == room_id and geometry_last_up == up and geometry_last_scale == scale_value:
+		return geometry_last_profile
+	tube_shape_mask(room_id)
+	var signature := geometry_signatures[room_id]
+	var ratio := clampf(scale_value * zoom_coefficient, MIN_ZOOM, MAX_ZOOM) / scale_value
+	var key := [signature, up, ratio]
+	if geometry_profiles.has(key):
+		geometry_last_profile = geometry_profiles[key]
+	if not geometry_profiles.has(key):
+		var warps := []
+		if ratio > 1.000001:
+			for face in range(6):
+				if signature.z & (1 << face):
+					warps.append({"normal": NORMALS[face], "axis": int(face / 2), "factor": 1.0 / ratio, "anchor": zoom_anchor(face, up)})
+		var profile := {"warps": warps, "fields": ExactMemo.new(FIELD_CACHE_LIMIT), "samples": ExactMemo.new(SAMPLE_CACHE_LIMIT), "spheres": ExactMemo.new(SPHERE_CACHE_LIMIT)}
+		remember(geometry_profiles, key, profile, GEOMETRY_PROFILE_LIMIT)
+		geometry_profile_builds += 1
+		geometry_last_profile = profile
+	geometry_last_room = room_id
+	geometry_last_up = up
+	geometry_last_scale = scale_value
+	return geometry_last_profile
+
+# One prepared deformation is shared by equivalent rooms and all actors.
+static func deform_tube(profile: Dictionary, p: Vector3) -> Vector4:
+	var mapped := p
+	var metric := 1.0
+	for warp: Dictionary in profile.warps:
+		var weight := smooth_taper((p.dot(warp.normal) - 1.5) / 1.5)
+		for axis in range(3):
+			if axis != warp.axis:
+				weight *= 1.0 - smooth_taper((absf(p[axis]) - TUBE_RADIUS) / (HALF - TUBE_RADIUS))
+		if weight <= 0.0:
+			continue
+		var width := lerpf(1.0, warp.factor, weight)
+		var axial: Vector3 = warp.normal * mapped.dot(warp.normal)
+		mapped = axial + warp.anchor + (mapped - axial - warp.anchor) / width
+		metric *= width / (1.0 + 4.0 * TUBE_RADIUS * (1.0 - width))
+	return Vector4(mapped.x, mapped.y, mapped.z, metric)
+
+func tube_deformation(room_id: int, p: Vector3, up: Vector3, scale_value: float) -> Vector4:
+	if not room_has_zoom(room_id):
+		return Vector4(p.x, p.y, p.z, 1.0)
+	return deform_tube(geometry_profile(room_id, up, scale_value), p)
+
+func tube_clearance(room_id: int, p: Vector3, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> float:
+	if not room_has_zoom(room_id):
+		return base_tube_clearance(room_id, p)
+	var profile := geometry_profile(room_id, up, scale_value)
+	if geometry_memo_enabled and profile.fields.has(p):
+		geometry_cache_hits += 1
+		return profile.fields.fetch(p)
+	geometry_cache_misses += 1
+	var query := deform_tube(profile, p)
+	var clearance := base_tube_clearance(room_id, Vector3(query.x, query.y, query.z)) * query.w
+	if geometry_memo_enabled:
+		profile.fields.put(p, clearance)
+	return clearance
+
+func base_tube_clearance(room_id: int, p: Vector3) -> float:
+	var mask := tube_shape_mask(room_id)
+	var clearance := Pipes.analytic_clearance(mask, p) if room_has_zoom(room_id) else Pipes.clearance(mask, p)
 	var corners := hall_corners[room_id]
 	if corners == 0:
 		return clearance
@@ -369,54 +670,74 @@ func rescale_actor(actor: Dictionary, radius: float) -> void:
 	actor.velocity *= factor
 	actor.radius = radius
 
-func tube_sample(room_id: int, p: Vector3) -> Dictionary:
+func tube_sample(room_id: int, p: Vector3, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> Dictionary:
+	var profile := geometry_profile(room_id, up, scale_value) if room_has_zoom(room_id) else {}
+	if geometry_memo_enabled and not profile.is_empty() and profile.samples.has(p):
+		geometry_sample_hits += 1
+		return profile.samples.fetch(p)
 	var gradient := Vector3.ZERO
 	for axis in range(3):
 		var offset := Vector3.ZERO
 		offset[axis] = 0.015
-		gradient[axis] = (tube_clearance(room_id, p - offset) - tube_clearance(room_id, p + offset)) / 0.03
-	return {"clearance": tube_clearance(room_id, p), "normal": gradient.normalized()}
+		gradient[axis] = (tube_clearance(room_id, p - offset, up, scale_value) - tube_clearance(room_id, p + offset, up, scale_value)) / 0.03
+	var result := {"clearance": tube_clearance(room_id, p, up, scale_value), "normal": gradient.normalized(), "gradientLength": gradient.length()}
+
+	result.make_read_only()
+	if geometry_memo_enabled and not profile.is_empty():
+		profile.samples.put(p, result)
+	return result
 
 # The fillet field is not an exact signed distance. Test the sphere's support
 # against the actual surface instead of treating center clearance as its radius.
-func tube_sphere_sample(room_id: int, p: Vector3, radius: float) -> Dictionary:
+func tube_sphere_sample(room_id: int, p: Vector3, radius: float, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> Dictionary:
 	var mask := tube_shape_mask(room_id)
 	var corners := hall_corners[room_id]
-	if mask == sphere_sample_mask and corners == sphere_sample_corners and p == sphere_sample_position and radius == sphere_sample_radius:
+	var cacheable := not room_has_zoom(room_id)
+	var profile := {} if cacheable else geometry_profile(room_id, up, scale_value)
+	var key := [p, radius]
+	if geometry_memo_enabled and not profile.is_empty() and profile.spheres.has(key):
+		geometry_sphere_hits += 1
+		return profile.spheres.fetch(key)
+	if cacheable and mask == sphere_sample_mask and corners == sphere_sample_corners and p == sphere_sample_position and radius == sphere_sample_radius:
 		return sphere_sample_result
-	var center := tube_sample(room_id, p)
+	var center := tube_sample(room_id, p, up, scale_value)
 	var direction: Vector3 = center.normal
-	var gap := tube_clearance(room_id, p + direction * radius)
+	var gap := tube_clearance(room_id, p + direction * radius, up, scale_value)
 	for axis in NORMALS:
-		var candidate := tube_clearance(room_id, p + axis * radius)
+		var candidate := tube_clearance(room_id, p + axis * radius, up, scale_value)
 		if candidate < gap:
 			gap = candidate
 			direction = axis
 	for iteration in range(5):
-		var surface := tube_sample(room_id, p + direction * radius)
+		var surface := tube_sample(room_id, p + direction * radius, up, scale_value)
 		var next: Vector3 = (direction + surface.normal).normalized()
-		var candidate := tube_clearance(room_id, p + next * radius)
+		var candidate := tube_clearance(room_id, p + next * radius, up, scale_value)
 		if candidate >= gap:
 			break
 		gap = candidate
 		direction = next
-	var normal := tube_sample(room_id, p + direction * radius)
-	sphere_sample_mask = mask
+	var normal := tube_sample(room_id, p + direction * radius, up, scale_value)
+	sphere_sample_mask = mask if cacheable else -1
 	sphere_sample_corners = corners
 	sphere_sample_position = p
 	sphere_sample_radius = radius
+	if not cacheable:
+		gap /= maxf(normal.gradientLength, 0.000001)
 	sphere_sample_result = {"clearance": radius + gap, "normal": normal.normal}
 	sphere_sample_result.make_read_only()
+	if geometry_memo_enabled and not profile.is_empty():
+		profile.spheres.put(key, sphere_sample_result)
 	return sphere_sample_result
 
 func constrain_actor(actor: Dictionary) -> void:
 	if not tubes:
+		constrain_zoom(actor)
 		return
-	rescale_actor(actor, Pipes.BALL_RADIUS)
+	rescale_actor(actor, Pipes.BALL_RADIUS * actor.get("zoomScale", 1.0))
 	# Walk clearance encloses the body and the raised eye.
 	var radius: float = actor.get("radius", 1.0)
 	for iteration in range(8):
-		var sample := tube_sphere_sample(actor.room, actor.p, radius)
+		var sample := tube_sphere_sample(actor.room, actor.p, radius, actor.up, actor.get("zoomScale", 1.0))
 		if sample.clearance >= radius + 0.001:
 			return
 		actor.p -= sample.normal * (radius + 0.002 - sample.clearance)
@@ -427,7 +748,7 @@ func constrain_actor(actor: Dictionary) -> void:
 func set_tubes(enabled: bool, actors: Array) -> void:
 	tubes = enabled
 	for actor in actors:
-		rescale_actor(actor, Pipes.BALL_RADIUS if enabled else 0.5)
+		rescale_actor(actor, (Pipes.BALL_RADIUS if enabled else 0.5) * actor.get("zoomScale", 1.0))
 		for axis in range(3):
 			var face := axis * 2 + int(actor.p[axis] < 0)
 			if rooms[actor.room].links[face] == null:

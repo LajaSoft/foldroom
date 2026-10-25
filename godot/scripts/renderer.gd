@@ -9,6 +9,7 @@ const CAMERA_MARGIN := 0.01
 var surface: ColorRect
 var material_ray: ShaderMaterial
 var topology_image: Image
+var zoom_texture: ImageTexture
 var shape_texture: ImageTexture
 var topology_texture: ImageTexture
 var ball_image: Image
@@ -41,12 +42,14 @@ func _ready() -> void:
 	add_child(surface)
 	topology_image = Image.create(1024, 1, false, Image.FORMAT_RGBAF)
 	topology_texture = ImageTexture.create_from_image(topology_image)
+	zoom_texture = ImageTexture.create_from_image(Image.create(1024, 1, false, Image.FORMAT_RF))
 	shape_texture = ImageTexture.create_from_image(Image.create(1024, 1, false, Image.FORMAT_RGBAF))
 	ball_image = Image.create(3, MAX_RENDER_BALLS, false, Image.FORMAT_RGBAF)
 	ball_texture = ImageTexture.create_from_image(ball_image)
 	marks_image = Image.create(2048, 1024, false, Image.FORMAT_RGBA8)
 	marks_image.fill(Color.TRANSPARENT)
 	marks_texture = ImageTexture.create_from_image(marks_image)
+	material_ray.set_shader_parameter("room_zoom", zoom_texture)
 	material_ray.set_shader_parameter("topology", topology_texture)
 	material_ray.set_shader_parameter("room_shapes", shape_texture)
 	material_ray.set_shader_parameter("pipe_catalog", Maze.Pipes.texture())
@@ -151,14 +154,22 @@ func rebuild(maze: FoldMaze) -> void:
 			var multi: MultiMesh = face_instances[face].multimesh
 			multi.set_instance_transform(room.id, Transform3D(Basis.IDENTITY, Vector3(room.cell) * 6.0))
 			multi.set_instance_custom_data(room.id, Color(data.a, data.b, 0, 0))
+	var zoom_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() * 6.0 / 1024.0)), false, Image.FORMAT_RF)
+	for room in maze.rooms:
+		for face in range(6):
+			var link = room.links[face]
+			var index: int = room.id * 6 + face
+			zoom_image.set_pixel(index % 1024, index / 1024, Color(link.get("zoom", 0) if link != null else 0, 0, 0))
+	zoom_texture.set_image(zoom_image)
 	topology_texture.set_image(topology_image)
 	var shape_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() / 1024.0)), false, Image.FORMAT_RGBAF)
 	for room in maze.rooms:
-		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), maze.tube_corner_mask(room.id), 0, 0))
+		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), maze.tube_corner_mask(room.id), 1 if room.links.any(func(link): return link != null and link.get("zoom", 0) != 0) else 0, 6))
 	shape_texture.set_image(shape_image)
 
 func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 	var result := Motion.camera_frame(maze, player)
+	result.zoomScale = player.get("zoomScale", 1.0)
 	var anchor: Vector3 = Vector3(maze.rooms[result.room].cell) * 6.0 + result.p
 	# At a folded mouth the actor's owning frame is authoritative. A lattice
 	# lookup at an exact positive boundary can select the wrong side of a fold.
@@ -176,9 +187,9 @@ func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 	while remaining > 0.00001:
 		var direction: Vector3 = -result.forward
 		var hit := Maze.intersect(result.p, direction)
-		if maze.tubes:
+		if maze.tubes or maze.zoom_clearance(result.room, result.p + direction * minf(remaining, hit.distance), result.gravityUp, result.zoomScale) < 100.0:
 			var limit := minf(remaining, hit.distance)
-			var clear_distance := tube_camera_distance(maze, result.room, result.p, direction, limit)
+			var clear_distance := zoom_camera_distance(maze, result.room, result.p, direction, limit, result.gravityUp, result.zoomScale)
 			if clear_distance < limit:
 				result.p += direction * clear_distance
 				break
@@ -189,7 +200,10 @@ func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 			result.p += direction * maxf(0.0, hit.distance - CAMERA_MARGIN)
 			break
 		var advance := minf(remaining, hit.distance + CAMERA_MARGIN)
+		var zoomed := maze.zoom_transport(result.room, hit.face, result.p + direction * advance, result.gravityUp, result.zoomScale)
 		var moved := maze.transport(result.room, hit.face, result.p + direction * advance, [result.forward, result.up, result.gravityUp])
+		moved.p = zoomed.p
+		result.zoomScale = clampf(result.zoomScale * zoomed.ratio, Maze.MIN_ZOOM, Maze.MAX_ZOOM)
 		result.room = moved.room
 		result.p = moved.p
 		result.forward = moved.vectors[0]
@@ -198,6 +212,18 @@ func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 		remaining -= advance
 	result.worldEye = Vector3(maze.rooms[result.room].cell) * 6.0 + result.p
 	return result
+
+static func zoom_camera_distance(maze: FoldMaze, room: int, origin: Vector3, direction: Vector3, limit: float, up: Vector3, scale_value: float) -> float:
+	var distance := 0.0
+	for step in range(256):
+		var p := origin + direction * distance
+		var gap := (maze.tube_clearance(room, p, up, scale_value) if maze.tubes else maze.zoom_clearance(room, p, up, scale_value)) - CAMERA_MARGIN
+		if gap <= 0.0001:
+			return distance
+		distance = minf(limit, distance + minf(gap * 0.5, 0.08))
+		if distance >= limit:
+			return limit
+	return distance
 
 # Use the same clearance field and conservative step as the tube ray shader.
 # A cube face alone does not constrain the camera to the curved pipe interior.
@@ -223,13 +249,19 @@ static func portal_images(maze: FoldMaze, actors: Array) -> Array:
 			if link == null or absf(3.0 - actor.p.dot(Maze.NORMALS[face])) > actor.radius + 0.00001:
 				continue
 			var moved := maze.transport(actor.room, face, actor.p, [actor.up])
-			records.append({"room": moved.room, "p": moved.p, "up": moved.vectors[0], "radius": actor.radius, "spin": (link.q * actor.spin).normalized()})
+			var zoomed := maze.zoom_transport(actor.room, face, actor.p, actor.up, actor.get("zoomScale", 1.0))
+			moved.p = zoomed.p
+			records.append({"room": moved.room, "p": moved.p, "up": moved.vectors[0], "radius": actor.radius * zoomed.ratio, "spin": (link.q * actor.spin).normalized()})
 	assert(records.size() <= MAX_RENDER_BALLS, "Render buffer must hold all 17 actors and six portal images each")
 	return records
 
 func sync(maze: FoldMaze, player: Dictionary, balls: Array) -> void:
+	material_ray.set_shader_parameter("min_zoom", Maze.MIN_ZOOM)
+	material_ray.set_shader_parameter("max_zoom", Maze.MAX_ZOOM)
+	material_ray.set_shader_parameter("zoom_coefficient", maze.zoom_coefficient)
 	material_ray.set_shader_parameter("tubes", maze.tubes)
 	frame = view(maze, player)
+	material_ray.set_shader_parameter("actor_scale", frame.zoomScale)
 	outside = frame.outside
 	surface.visible = not outside
 	overview_container.visible = outside

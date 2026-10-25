@@ -78,7 +78,7 @@ static func drive(maze: FoldMaze, player: Dictionary, dt: float, forward: float,
 	if forward > 0:
 		var heading: Vector3 = player.cameraForward
 		if maze.tubes:
-			var contact := maze.tube_sample(player.room, player.p)
+			var contact := maze.tube_sample(player.room, player.p, player.up, player.get("zoomScale", 1.0))
 			if contact.clearance < player.radius + 0.15:
 				heading = (heading - contact.normal * heading.dot(contact.normal)).normalized()
 		var scale_factor := Maze.Pipes.SCALE if maze.tubes else 1.0
@@ -96,7 +96,7 @@ static func steer_tube(player: Dictionary, side: float, dt: float) -> void:
 	player.omega = turn * player.omega
 
 static func update_tube_camera(maze: FoldMaze, player: Dictionary, dt: float) -> void:
-	var sample := maze.tube_sample(player.room, player.p)
+	var sample := maze.tube_sample(player.room, player.p, player.up, player.get("zoomScale", 1.0))
 	if sample.clearance > player.radius + 0.2:
 		return
 	var surface_up: Vector3 = -sample.normal
@@ -186,15 +186,23 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 		for other in range(3):
 			if other != axis and absf(next[other]) > HALF - radius + 0.002:
 				fits = false
+		if not maze.tubes and link != null and absf(next[axis]) > HALF - radius:
+			fits = fits and maze.zoom_clearance(ball.room, next, ball.up, ball.get("zoomScale", 1.0)) >= radius - 0.01
 		if maze.tubes and link != null and absf(next[axis]) > HALF - radius:
-			fits = maze.tube_sphere_sample(ball.room, next, radius).clearance >= radius - 0.01
+			fits = maze.tube_sphere_sample(ball.room, next, radius, ball.up, ball.get("zoomScale", 1.0)).clearance >= radius - 0.01
 		if link != null and fits:
 			if absf(next[axis]) >= HALF:
 				var vectors: Array = [ball.velocity, ball.up, ball.omega, ball.motorAxis]
 				if ball.get("controlled", false):
 					maze.player_rotation = link.q * maze.player_rotation
 					vectors.append_array([ball.forward, ball.cameraForward, ball.cameraUp])
+				var zoomed := maze.zoom_transport(ball.room, face, next, ball.up, ball.get("zoomScale", 1.0))
+				var old_scale: float = ball.get("zoomScale", 1.0)
+				ball.zoomScale = clampf(old_scale * zoomed.ratio, Maze.MIN_ZOOM, Maze.MAX_ZOOM)
+				ball.radius *= zoomed.ratio
 				var moved := maze.transport(ball.room, face, next, vectors)
+				moved.p = zoomed.p
+				moved.vectors[2] /= zoomed.ratio
 				ball.room = moved.room
 				ball.p = moved.p
 				var names := ["velocity", "up", "omega", "motorAxis", "forward", "cameraForward", "cameraUp"]
@@ -228,7 +236,7 @@ static func step_ball(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 			ball.velocity -= normal * ball.velocity.dot(normal)
 	ball.p = next
 	if maze.tubes:
-		var sample := maze.tube_sphere_sample(ball.room, ball.p, radius)
+		var sample := maze.tube_sphere_sample(ball.room, ball.p, radius, ball.up, ball.get("zoomScale", 1.0))
 		if sample.clearance <= radius + 0.015:
 			asphalt_contact(ball, -sample.normal, dt)
 		if sample.clearance < radius:
@@ -283,7 +291,7 @@ static func tube_rollback_direction(ball: Dictionary, direction: Vector3, normal
 static func drive_tube_motor(maze: FoldMaze, ball: Dictionary, dt: float) -> void:
 	if not maze.tubes or ball.get("controlled", false):
 		return
-	var sample := maze.tube_sphere_sample(ball.room, ball.p, ball.radius)
+	var sample := maze.tube_sphere_sample(ball.room, ball.p, ball.radius, ball.up, ball.get("zoomScale", 1.0))
 	if sample.clearance > ball.radius + 0.12:
 		return
 	if ball.get("tubeMotorRoom", -1) != ball.room or ball.get("tubeMotorFace", -1) < 0 or maze.rooms[ball.room].links[ball.tubeMotorFace] == null or Maze.NORMALS[ball.tubeMotorFace].dot(ball.up) > 0.5:
@@ -319,7 +327,7 @@ static func fits_player(player: Dictionary, p: Vector3, face: int) -> bool:
 	for axis in range(3):
 		if axis == int(face / 2):
 			continue
-		var extent := 1.0 if absf(player.up[axis]) > 0.5 else 0.32
+		var extent: float = (1.0 if absf(player.up[axis]) > 0.5 else 0.32) * player.get("zoomScale", 1.0)
 		if absf(p[axis]) > HALF - extent + 0.02:
 			return false
 	return true
@@ -348,10 +356,13 @@ static func step_player(maze: FoldMaze, player: Dictionary, dt: float, forward: 
 		var sign_value := 1.0 if next[axis] > 0 else -1.0
 		var face := axis * 2 + int(sign_value < 0)
 		var link = maze.rooms[player.room].links[face]
-		var extent := 1.0 if absf(player.up[axis]) > 0.5 else 0.32
+		var extent: float = (1.0 if absf(player.up[axis]) > 0.5 else 0.32) * player.get("zoomScale", 1.0)
 		if link != null and fits_player(player, next, face):
 			if absf(next[axis]) >= HALF:
+				var zoomed := maze.zoom_transport(player.room, face, next, player.up, player.get("zoomScale", 1.0))
+				player.zoomScale = clampf(player.get("zoomScale", 1.0) * zoomed.ratio, Maze.MIN_ZOOM, Maze.MAX_ZOOM)
 				var result := maze.transport(player.room, face, next, [player.forward, player.up, player.velocity])
+				result.p = zoomed.p
 				maze.player_rotation = link.q * maze.player_rotation
 				player.room = result.room
 				player.p = result.p
@@ -410,7 +421,7 @@ static func camera_frame(maze: FoldMaze, player: Dictionary) -> Dictionary:
 	var forward: Vector3 = player.get("cameraForward", player.forward)
 	var up: Vector3 = player.get("cameraUp", player.up)
 	if player.mode != "ball":
-		p += player.up * 0.65
+		p += player.up * 0.65 * player.get("zoomScale", 1.0)
 		for i in range(3):
 			var axis := -1
 			for j in range(3):

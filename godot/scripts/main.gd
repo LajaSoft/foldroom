@@ -32,6 +32,7 @@ var setup_panel: PanelContainer
 var setup_content: VBoxContainer
 var wheel_live: Label
 var binding_buttons := {}
+var zoom_coefficient_input: SpinBox
 var setup_status: Label
 var json_dialog: ConfirmationDialog
 var json_text: TextEdit
@@ -263,14 +264,18 @@ func build_setup() -> void:
 	setup_panel.add_child(outer)
 	var heading := HBoxContainer.new()
 	outer.add_child(heading)
-	var title := label("SETUP / CONTROLS", heading, 26)
+	var title := label("SETUP", heading, 26)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button("Back", heading, close_setup)
 	setup_status = label("Select an action, then press a key, mouse or wheel button.", outer, 14)
 	setup_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var tabs := TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(tabs)
 	var scroll := ScrollContainer.new()
+	scroll.name = "Controls and wheel"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	outer.add_child(scroll)
+	tabs.add_child(scroll)
 	setup_content = VBoxContainer.new()
 	setup_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	setup_content.add_theme_constant_override("separation", 8)
@@ -338,8 +343,23 @@ func build_setup() -> void:
 			binding_buttons[action].append(assign)
 			var clear := button("×", row, func(): controls.assign_binding(action, {}, slot))
 			clear.tooltip_text = "Clear this assignment"
-	label("AUDIO", setup_content, 22)
-	var music_row := setting_row(setup_content, "Music track")
+	var general_scroll := ScrollContainer.new()
+	general_scroll.name = "Game and audio"
+	tabs.add_child(general_scroll)
+	var general := VBoxContainer.new()
+	general.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	general_scroll.add_child(general)
+	label("PASSAGE SCALE", general, 22)
+	zoom_coefficient_input = SpinBox.new()
+	zoom_coefficient_input.min_value = 1.01
+	zoom_coefficient_input.max_value = 2.0
+	zoom_coefficient_input.step = 0.01
+	zoom_coefficient_input.value = maze.zoom_coefficient
+	setting_row(general, "Scale coefficient per passage").add_child(zoom_coefficient_input)
+	zoom_coefficient_input.value_changed.connect(func(value: float): maze.zoom_coefficient = value; save_audio_settings(); dirty = true)
+	label("= grows · − shrinks the aimed passage; opposite key clears it.\nPlayer and NPC scale: ×0.2 – ×4.5. Reverse travel reverses the effect.", general, 14)
+	label("AUDIO", general, 22)
+	var music_row := setting_row(general, "Music track")
 	var music_choice := OptionButton.new()
 	for track_name in Sound.TRACKS:
 		music_choice.add_item(track_name)
@@ -347,9 +367,9 @@ func build_setup() -> void:
 	music_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	music_row.add_child(music_choice)
 	music_choice.item_selected.connect(func(index: int): sound.select_music(index); save_audio_settings())
-	slider(setup_content, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
-	slider(setup_content, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
-	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", setup_content, 14)
+	slider(general, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
+	slider(general, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
+	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", general, 14)
 
 func refresh_bindings() -> void:
 	for action in binding_buttons:
@@ -357,6 +377,7 @@ func refresh_bindings() -> void:
 			binding_buttons[action][slot].text = controls.describe(action, slot)
 
 func open_setup() -> void:
+	zoom_coefficient_input.set_value_no_signal(maze.zoom_coefficient)
 	set_active(false)
 	menu.hide()
 	setup_panel.show()
@@ -480,7 +501,9 @@ func load_example() -> void:
 		Motion.set_mode(player, "ball")
 
 func reset_maze() -> void:
+	var coefficient := maze.zoom_coefficient
 	maze = Maze.new()
+	maze.zoom_coefficient = coefficient
 	player = Motion.initial_player()
 	balls.clear()
 	renderer.load_marks([])
@@ -507,7 +530,7 @@ func switch_geometry() -> void:
 	show_message("Geometry: " + ("Tubes" if maze.tubes else "Rooms"))
 
 func switch_mode() -> void:
-	Motion.set_mode(player, "walk" if player.mode == "ball" else "ball", Maze.Pipes.BALL_RADIUS if maze.tubes else 0.5)
+	Motion.set_mode(player, "walk" if player.mode == "ball" else "ball", (Maze.Pipes.BALL_RADIUS if maze.tubes else 0.5) * player.get("zoomScale", 1.0))
 	maze.constrain_actor(player)
 	renderer.camera_distance = 0
 	gyro.reset()
@@ -621,6 +644,7 @@ func on_action(action: String) -> void:
 		"reset": reset_maze, "jump_start": jump_start,
 		"straight": func(): carve("straight"), "up": func(): carve("up"), "down": func(): carve("down"),
 		"delete": remove_passage, "marker": func(): drawing = true; mark_wall(),
+		"passage_grow": func(): edit_passage_zoom(1), "passage_shrink": func(): edit_passage_zoom(-1),
 		"zoom_in": func(): renderer.zoom(-100), "zoom_out": func(): renderer.zoom(100)
 	}
 	if actions.has(action):
@@ -637,6 +661,17 @@ func carve(kind: String) -> void:
 		return
 	dirty = true
 	show_message(kind.capitalize() + " passage · room " + str(link.target + 1))
+
+func edit_passage_zoom(delta: int) -> void:
+	if renderer.camera_distance > 0:
+		show_message("Return to first-person view to edit")
+		return
+	var hit := renderer.aim(maze, player)
+	if not maze.adjust_zoom(hit.room, hit.face, delta):
+		show_message(maze.last_error)
+		return
+	dirty = true
+	show_message("Passage scale %+.0f · coefficient ×%.2f" % [maze.rooms[hit.room].links[hit.face].zoom, maze.zoom_coefficient])
 
 func remove_passage() -> void:
 	if renderer.camera_distance > 0:
@@ -714,7 +749,7 @@ func _physics_process(dt: float) -> void:
 		grounded = 1.0
 	gyro.surface_response = 0.0
 	if maze.tubes and player.mode == "ball":
-		var sample := maze.tube_sphere_sample(player.room, player.p, player.radius)
+		var sample := maze.tube_sphere_sample(player.room, player.p, player.radius, player.up, player.get("zoomScale", 1.0))
 		grounded = 1.0 if sample.clearance <= player.radius + 0.015 else 0.0
 		gyro.surface_response = player.get("surfaceResponse", 0.0)
 	for hit in maze.impacts:
@@ -761,11 +796,13 @@ func _process(dt: float) -> void:
 		dirty = false
 	renderer.sync(maze, player, balls)
 	var room: Dictionary = maze.rooms[player.room]
-	hud.text = "ROOM  %03d\n%s\n\nRooms      %d\nPassages   %d\nBalls      %d\n\nLOCAL DOWN  %s\nMODE        %s\nSpeed       %.2f\nFFB         %+.3f" % [player.room + 1, Maze.cell_key(room.cell), maze.rooms.size(), maze.passage_count(), balls.size(), FACE_NAMES[Maze.face_of(-player.up)].split(" / ")[0], player.mode.to_upper(), player.velocity.length(), gyro.output]
+	hud.text = "ROOM  %03d\n%s\n\nRooms      %d\nPassages   %d\nBalls      %d\n\nLOCAL DOWN  %s\nMODE        %s\nScale       ×%.3f\nSpeed       %.2f\nFFB         %+.3f" % [player.room + 1, Maze.cell_key(room.cell), maze.rooms.size(), maze.passage_count(), balls.size(), FACE_NAMES[Maze.face_of(-player.up)].split(" / ")[0], player.mode.to_upper(), player.get("zoomScale", 1.0), player.velocity.length(), gyro.output]
 	if active:
 		var hit := renderer.aim(maze, player, marker_cursor)
 		var link = maze.rooms[hit.room].links[hit.face]
 		target.text = "OVERVIEW" if renderer.outside else ("PASSAGE · DEL TO REMOVE" if link != null else "WALL") + "\n" + FACE_NAMES[hit.face]
+		if link != null and link.get("zoom", 0) != 0:
+			target.text += "\nSCALE %+.0f · ×%.3f" % [link.zoom, maze.passage_ratio(hit.room, hit.face, player.get("zoomScale", 1.0))]
 		crosshair.position = root.size / 2.0 + marker_cursor - Vector2(9, 17)
 		crosshair.text = "⊙" if drawing else "+"
 		crosshair.visible = renderer.camera_distance == 0
@@ -792,13 +829,22 @@ func _process(dt: float) -> void:
 			get_viewport().get_texture().get_image().save_png("res://tests/setup-smoke.png")
 			var scroll: ScrollContainer = setup_content.get_parent()
 			scroll.scroll_vertical = maxi(0, roundi(binding_buttons["straight"][0].get_parent().position.y) - 60)
+		if smoke_frames == 100:
+			var tabs: TabContainer = setup_content.get_parent().get_parent()
+			tabs.current_tab = 1
+		if smoke_frames == 110:
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("res://tests/game-audio-smoke.png")
+			var tabs: TabContainer = setup_content.get_parent().get_parent()
+			smoke_check(zoom_coefficient_input.is_visible_in_tree(), "Game and audio tab exposes passage coefficient")
+			tabs.current_tab = 0
 		if smoke_frames == 120:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("res://tests/bindings-smoke.png")
 			close_setup()
 			switch_geometry()
 			set_active(true)
-			smoke_check(maze.tubes and maze.tube_sample(player.room, player.p).clearance >= player.radius, "Tube switch places player inside geometry")
+			smoke_check(maze.tubes and maze.tube_sample(player.room, player.p, player.up, player.get("zoomScale", 1.0)).clearance >= player.radius, "Tube switch places player inside geometry")
 		if smoke_frames == 140:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("res://tests/tubes-smoke.png")
@@ -806,6 +852,7 @@ func _process(dt: float) -> void:
 
 func save_audio_settings() -> void:
 	var config := ConfigFile.new()
+	config.set_value("geometry", "zoom_coefficient", maze.zoom_coefficient)
 	config.set_value("audio", "volume", sound.volume)
 	config.set_value("audio", "music_volume", sound.music.volume)
 	config.set_value("audio", "music_track", Sound.TRACKS[sound.track_index])
@@ -821,6 +868,7 @@ func load_audio_settings() -> void:
 	if result != OK:
 		show_message("Audio settings load failed: " + error_string(result))
 		return
+	maze.zoom_coefficient = clampf(float(config.get_value("geometry", "zoom_coefficient", 1.1)), 1.01, 2.0)
 	sound.select_music(Sound.TRACKS.find(config.get_value("audio", "music_track", Sound.TRACKS[0])))
 	sound.music.volume = clampf(float(config.get_value("audio", "music_volume", 0.45)), 0, 1)
 	sound.volume = clampf(float(config.get_value("audio", "volume", 0.55)), 0, 1)

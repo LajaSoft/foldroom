@@ -52,5 +52,7 @@ release export, release FFB API registration, main scene loading, DLL packaging
 and ZIP integrity without opening physical hardware.
 
 After committing and pushing these changes, push a tag to trigger both jobs.
-Download FoldRoom-windows-x86_64 from the workflow run's Artifacts section.
-Tags do not automatically create or publish a GitHub Release.
+After both jobs pass, a tag build verifies the package checksums and publishes
+AppImage, Linux tar.gz, Windows ZIP and checksum files to the tag's GitHub Release.
+Existing releases are updated on reruns. Branch/PR builds remain available only
+in the workflow run's Artifacts section.

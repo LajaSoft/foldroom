@@ -12,7 +12,8 @@ func run() -> void:
 	var importer := State.new()
 	var state := importer.import_json(FileAccess.get_file_as_string(path))
 	assert(not state.is_empty(), importer.error)
-	state.maze.tubes = true
+	if not "--keep-geometry" in OS.get_cmdline_user_args():
+		state.maze.tubes = true
 	for actor in state.balls + [state.player]:
 		state.maze.constrain_actor(actor)
 	var renderer := Renderer.new()

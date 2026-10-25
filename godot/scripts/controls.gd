@@ -5,7 +5,7 @@ signal binding_changed
 signal action_pressed(action: String)
 signal status_changed(message: String)
 var config_path := "user://controls.cfg"
-const ACTIONS := ["accelerate", "brake", "left", "right", "boost", "straight", "up", "down", "marker", "spawn", "remove_ball", "delete", "pause", "mode", "reset", "jump_start", "zoom_in", "zoom_out"]
+const ACTIONS := ["accelerate", "brake", "left", "right", "boost", "straight", "up", "down", "marker", "spawn", "remove_ball", "delete", "pause", "mode", "reset", "jump_start", "zoom_in", "zoom_out", "passage_grow", "passage_shrink"]
 var bindings := {
 	"accelerate": {"kind": "key", "code": KEY_W}, "brake": {"kind": "key", "code": KEY_S},
 	"left": {"kind": "key", "code": KEY_A}, "right": {"kind": "key", "code": KEY_D},
@@ -15,6 +15,7 @@ var bindings := {
 	"remove_ball": {"kind": "key", "code": KEY_B, "shift": true}, "delete": {"kind": "key", "code": KEY_DELETE},
 	"pause": {"kind": "key", "code": KEY_ESCAPE}, "mode": {"kind": "key", "code": KEY_M},
 	"reset": {"kind": "key", "code": KEY_R, "ctrl": true}, "jump_start": {"kind": "key", "code": KEY_HOME},
+	"passage_grow": {"kind": "key", "code": KEY_EQUAL}, "passage_shrink": {"kind": "key", "code": KEY_MINUS},
 	"zoom_in": {"kind": "mouse", "code": MOUSE_BUTTON_WHEEL_UP}, "zoom_out": {"kind": "mouse", "code": MOUSE_BUTTON_WHEEL_DOWN}
 }
 var secondary_bindings := {}
