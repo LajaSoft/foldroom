@@ -27,6 +27,8 @@ func select_music(index: int) -> void:
 	track_index = index
 
 func _ready() -> void:
+	if OS.has_feature("web"):
+		playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate = 22050.0
 	generator.buffer_length = 0.18

@@ -1,0 +1,24 @@
+services:
+  web-export:
+    image: foldroom-web-export
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    volumes:
+      - ./artifacts/pages:/output
+  web-demo:
+    image: nginx:stable-alpine
+    ports:
+      - "127.0.0.1:${DEMO_PORT:-8081}:80"
+    volumes:
+      - ./artifacts/pages:/usr/share/nginx/html:ro
+  web-browser-test:
+    image: foldroom-web-browser-test
+    build:
+      context: .
+      dockerfile: docker/web/browser.Dockerfile
+    depends_on:
+      - web-demo
+    network_mode: host
+    volumes:
+      - ./artifacts/web-browser:/results

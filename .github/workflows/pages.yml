@@ -1,8 +1,11 @@
-name: Publish gameplay player
+name: Publish Godot web demo and gameplay
 on:
   push:
     branches: [main]
     paths:
+      - godot/**
+      - docker/web/**
+      - compose.web.yml
       - docs/gameplay.html
       - docs/media/**
       - .github/workflows/pages.yml
@@ -22,16 +25,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+      - name: Build current Godot game without native extensions
+        run: docker compose -f compose.web.yml run --build --rm web-export
       - name: Prepare player and media
         run: |
-          mkdir -p public/media
-          cp docs/gameplay.html public/index.html
-          cp docs/media/rolling-balls.jpg public/media/
-          cp docs/media/tube_demo.jpg public/media/
-          cp docs/media/current_10_22.jpg public/media/
+          mkdir -p artifacts/pages/media
+          cp docs/gameplay.html artifacts/pages/index.html
+          cp docs/media/rolling-balls.jpg artifacts/pages/media/
+          cp docs/media/tube_demo.jpg artifacts/pages/media/
+          cp docs/media/current_10_22.jpg artifacts/pages/media/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: artifacts/pages
       - uses: actions/deploy-pages@v4
         id: deployment

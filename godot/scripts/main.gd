@@ -45,6 +45,7 @@ var started := false
 var last_lateral := 0.0
 var smoke_frames := -1
 var smoke_failed := false
+var pointer_lock_callback: JavaScriptObject
 
 func _ready() -> void:
 	if "--verify-windows-ffb" in OS.get_cmdline_user_args():
@@ -79,6 +80,12 @@ func _ready() -> void:
 	build_json_dialog()
 	controls.connect_wheel()
 	set_active(false)
+	if OS.has_feature("web"):
+		load_example()
+		pointer_lock_callback = JavaScriptBridge.create_callback(on_web_pointer_lock_changed)
+		var document := JavaScriptBridge.get_interface("document")
+		document.addEventListener("pointerlockchange", pointer_lock_callback)
+		document.addEventListener("pointerlockerror", pointer_lock_callback)
 	if "--smoke-test" in OS.get_cmdline_user_args():
 		smoke_frames = 0
 		load_example()
@@ -218,15 +225,16 @@ func build_menu() -> void:
 	menu_content.add_child(row)
 	button("Example", row, load_example)
 	button("Reset maze", row, reset_maze)
-	button("Controls / Wheel / Audio", menu_content, open_setup)
+	button("Controls / Audio" if OS.has_feature("web") else "Controls / Wheel / Audio", menu_content, open_setup)
 	row = HBoxContainer.new()
 	menu_content.add_child(row)
 	button("Export JSON", row, func(): open_json(false))
 	button("Import JSON", row, func(): open_json(true))
 	button("Quick save", row, quick_save)
 	button("Quick load", row, quick_load)
-	label("The sphere starts in Ball mode. W accelerates, S brakes.\nA / D steer relative to the camera. Shift boosts ×5.\nB adds a powered ball; Shift+B removes the oldest.\nShift+LMB draws on walls; Delete closes a passage.\nScroll pulls the camera outside the cubic lattice.\nM switches mode. Wheel bindings are configured in Setup.", menu_content, 15)
-	button("Quit", menu_content, quit_game)
+	label("The sphere starts in Ball mode. W accelerates, S brakes.\nA / D steer relative to the camera. Shift boosts ×5.\nB adds a powered ball; Shift+B removes the oldest.\nShift+LMB draws on walls; Delete closes a passage.\nScroll pulls the camera outside the cubic lattice.\nM switches mode. Configure bindings in Setup.", menu_content, 15)
+	if not OS.has_feature("web"):
+		button("Quit", menu_content, quit_game)
 
 func setting_row(parent: Node, text: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -267,7 +275,7 @@ func build_setup() -> void:
 	var title := label("SETUP", heading, 26)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button("Back", heading, close_setup)
-	setup_status = label("Select an action, then press a key, mouse or wheel button.", outer, 14)
+	setup_status = label("Select an action, then press a key, mouse or gamepad button." if OS.has_feature("web") else "Select an action, then press a key, mouse or wheel button.", outer, 14)
 	setup_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -280,6 +288,51 @@ func build_setup() -> void:
 	setup_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	setup_content.add_theme_constant_override("separation", 8)
 	scroll.add_child(setup_content)
+	if not OS.has_feature("web"):
+		build_wheel_setup()
+	label("BUTTON MAPPING · PRIMARY / SECONDARY", setup_content, 22)
+	for action in controls.ACTIONS:
+		var row := setting_row(setup_content, action.replace("_", " ").capitalize())
+		row.add_theme_constant_override("separation", 4)
+		binding_buttons[action] = []
+		for slot in range(2):
+			var assign := button(controls.describe(action, slot), row, func(): controls.listen(action, slot))
+			assign.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			assign.custom_minimum_size.x = 145
+			assign.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			assign.tooltip_text = "Primary" if slot == 0 else "Secondary"
+			binding_buttons[action].append(assign)
+			var clear := button("×", row, func(): controls.assign_binding(action, {}, slot))
+			clear.tooltip_text = "Clear this assignment"
+	var general_scroll := ScrollContainer.new()
+	general_scroll.name = "Game and audio"
+	tabs.add_child(general_scroll)
+	var general := VBoxContainer.new()
+	general.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	general_scroll.add_child(general)
+	label("PASSAGE SCALE", general, 22)
+	zoom_coefficient_input = SpinBox.new()
+	zoom_coefficient_input.min_value = 1.01
+	zoom_coefficient_input.max_value = 2.0
+	zoom_coefficient_input.step = 0.01
+	zoom_coefficient_input.value = maze.zoom_coefficient
+	setting_row(general, "Scale coefficient per passage").add_child(zoom_coefficient_input)
+	zoom_coefficient_input.value_changed.connect(func(value: float): maze.zoom_coefficient = value; save_audio_settings(); dirty = true)
+	label("= grows · − shrinks the aimed passage; opposite key clears it.\nPlayer and NPC scale: ×0.2 – ×4.5. Reverse travel reverses the effect.", general, 14)
+	label("AUDIO", general, 22)
+	var music_row := setting_row(general, "Music track")
+	var music_choice := OptionButton.new()
+	for track_name in Sound.TRACKS:
+		music_choice.add_item(track_name)
+	music_choice.select(sound.track_index)
+	music_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_row.add_child(music_choice)
+	music_choice.item_selected.connect(func(index: int): sound.select_music(index); save_audio_settings())
+	slider(general, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
+	slider(general, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
+	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", general, 14)
+
+func build_wheel_setup() -> void:
 	label("MOZA / GYROSCOPE", setup_content, 22)
 	wheel_live = label("", setup_content, 14)
 	wheel_live.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -329,47 +382,6 @@ func build_setup() -> void:
 	slider(setup_content, "Impact vibration", controls.impact_strength, func(value: float): controls.impact_strength = value; controls.save_config())
 	slider(setup_content, "Steering deadzone", controls.deadzone, func(value: float): controls.deadzone = minf(value, 0.3); controls.save_config())
 	label("Force is zero while menus are open. No test force is sent here.\nThe model combines rotor resistance, centering, side loads and collision kicks.", setup_content, 14)
-	label("BUTTON MAPPING · PRIMARY / SECONDARY", setup_content, 22)
-	for action in controls.ACTIONS:
-		var row := setting_row(setup_content, action.replace("_", " ").capitalize())
-		row.add_theme_constant_override("separation", 4)
-		binding_buttons[action] = []
-		for slot in range(2):
-			var assign := button(controls.describe(action, slot), row, func(): controls.listen(action, slot))
-			assign.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			assign.custom_minimum_size.x = 145
-			assign.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			assign.tooltip_text = "Primary" if slot == 0 else "Secondary"
-			binding_buttons[action].append(assign)
-			var clear := button("×", row, func(): controls.assign_binding(action, {}, slot))
-			clear.tooltip_text = "Clear this assignment"
-	var general_scroll := ScrollContainer.new()
-	general_scroll.name = "Game and audio"
-	tabs.add_child(general_scroll)
-	var general := VBoxContainer.new()
-	general.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	general_scroll.add_child(general)
-	label("PASSAGE SCALE", general, 22)
-	zoom_coefficient_input = SpinBox.new()
-	zoom_coefficient_input.min_value = 1.01
-	zoom_coefficient_input.max_value = 2.0
-	zoom_coefficient_input.step = 0.01
-	zoom_coefficient_input.value = maze.zoom_coefficient
-	setting_row(general, "Scale coefficient per passage").add_child(zoom_coefficient_input)
-	zoom_coefficient_input.value_changed.connect(func(value: float): maze.zoom_coefficient = value; save_audio_settings(); dirty = true)
-	label("= grows · − shrinks the aimed passage; opposite key clears it.\nPlayer and NPC scale: ×0.2 – ×4.5. Reverse travel reverses the effect.", general, 14)
-	label("AUDIO", general, 22)
-	var music_row := setting_row(general, "Music track")
-	var music_choice := OptionButton.new()
-	for track_name in Sound.TRACKS:
-		music_choice.add_item(track_name)
-	music_choice.select(sound.track_index)
-	music_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	music_row.add_child(music_choice)
-	music_choice.item_selected.connect(func(index: int): sound.select_music(index); save_audio_settings())
-	slider(general, "Generative music volume", sound.music.volume, func(value: float): sound.music.volume = value; save_audio_settings())
-	slider(general, "Motor / impact volume", sound.volume, func(value: float): sound.volume = value; save_audio_settings())
-	label("A synthesized electric motor follows rolling speed, rotor spin and throttle.\nWall and sphere impacts produce short mechanical transients.", general, 14)
 
 func refresh_bindings() -> void:
 	for action in binding_buttons:
@@ -404,7 +416,8 @@ func build_json_dialog() -> void:
 	json_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var row := HBoxContainer.new()
 	content.add_child(row)
-	button("Open file", row, func(): show_file(false))
+	if not OS.has_feature("web"):
+		button("Open file", row, func(): show_file(false))
 	button("Save file", row, func(): show_file(true))
 	button("Copy", row, func(): DisplayServer.clipboard_set(json_text.text))
 	json_dialog.confirmed.connect(func():
@@ -429,6 +442,9 @@ func build_json_dialog() -> void:
 		json_text.text = file.get_as_text())
 
 func show_file(save: bool) -> void:
+	if OS.has_feature("web") and save:
+		JavaScriptBridge.download_buffer(json_text.text.to_utf8_buffer(), "foldroom.json", "application/json")
+		return
 	file_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE if save else FileDialog.FILE_MODE_OPEN_FILE
 	file_dialog.current_file = "foldroom.json" if save else ""
 	file_dialog.popup_centered()
@@ -565,7 +581,7 @@ func set_active(value: bool) -> void:
 	crosshair.visible = active
 	target.visible = active
 	controls.held.clear()
-	controls.forces_allowed = active and player.mode == "ball" and smoke_frames < 0
+	controls.forces_allowed = active and player.mode == "ball" and smoke_frames < 0 and not OS.has_feature("web")
 	controls.stop_force()
 	gyro.reset()
 	drawing = false
@@ -589,6 +605,16 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST and controls != null:
 		quit_game()
 
+func on_web_pointer_lock_changed(_arguments: Array) -> void:
+	if active and JavaScriptBridge.get_interface("document").pointerLockElement == null:
+		set_active(false)
+
+func _exit_tree() -> void:
+	if pointer_lock_callback != null:
+		var document := JavaScriptBridge.get_interface("document")
+		document.removeEventListener("pointerlockchange", pointer_lock_callback)
+		document.removeEventListener("pointerlockerror", pointer_lock_callback)
+
 func _input(event: InputEvent) -> void:
 	if controls == null:
 		return
@@ -601,7 +627,7 @@ func _input(event: InputEvent) -> void:
 			close_setup()
 			get_viewport().set_input_as_handled()
 			return
-		set_active(not active)
+		set_active(false if OS.has_feature("web") else not active)
 		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -796,7 +822,9 @@ func _process(dt: float) -> void:
 		dirty = false
 	renderer.sync(maze, player, balls)
 	var room: Dictionary = maze.rooms[player.room]
-	hud.text = "ROOM  %03d\n%s\n\nRooms      %d\nPassages   %d\nBalls      %d\n\nLOCAL DOWN  %s\nMODE        %s\nScale       ×%.3f\nSpeed       %.2f\nFFB         %+.3f" % [player.room + 1, Maze.cell_key(room.cell), maze.rooms.size(), maze.passage_count(), balls.size(), FACE_NAMES[Maze.face_of(-player.up)].split(" / ")[0], player.mode.to_upper(), player.get("zoomScale", 1.0), player.velocity.length(), gyro.output]
+	hud.text = "ROOM  %03d\n%s\n\nRooms      %d\nPassages   %d\nBalls      %d\n\nLOCAL DOWN  %s\nMODE        %s\nScale       ×%.3f\nSpeed       %.2f" % [player.room + 1, Maze.cell_key(room.cell), maze.rooms.size(), maze.passage_count(), balls.size(), FACE_NAMES[Maze.face_of(-player.up)].split(" / ")[0], player.mode.to_upper(), player.get("zoomScale", 1.0), player.velocity.length()]
+	if not OS.has_feature("web"):
+		hud.text += "\nFFB         %+.3f" % gyro.output
 	if active:
 		var hit := renderer.aim(maze, player, marker_cursor)
 		var link = maze.rooms[hit.room].links[hit.face]
@@ -807,7 +835,7 @@ func _process(dt: float) -> void:
 		crosshair.text = "⊙" if drawing else "+"
 		crosshair.visible = renderer.camera_distance == 0
 	update_gravity_pointer()
-	if setup_panel.visible:
+	if setup_panel.visible and wheel_live != null:
 		wheel_live.text = "%s\nSteer %+.3f · throttle %.3f · brake %.3f\nABS codes: steer %d / throttle %d / brake %d\nAssigning axis: %s" % [controls.device_name, controls.steering, controls.throttle, controls.brake, controls.steer_code, controls.throttle_code, controls.brake_code, controls.axis_listening]
 	toast_time = maxf(0, toast_time - dt)
 	notice.visible = toast_time > 0

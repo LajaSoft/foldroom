@@ -92,6 +92,10 @@ func save_config() -> void:
 
 func connect_wheel() -> void:
 	close_wheel()
+	if OS.has_feature("web"):
+		ffb_enabled = false
+		device_name = "Browser demo · keyboard / mouse"
+		return
 	if OS.get_name() == "Windows":
 		var windows_wheel = preload("res://scripts/windows_wheel.gd").new()
 		if not windows_wheel.open(device_path):

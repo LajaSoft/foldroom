@@ -19,6 +19,8 @@ func run() -> void:
 	root.size = Vector2i(640, 360)
 	var renderer := Renderer.new()
 	root.add_child(renderer)
+	if "--web-demo-shader" in OS.get_cmdline_user_args():
+		renderer.prepare_web_shader()
 	for tubes in [false, true]:
 		for kind in ["straight", "up", "down"]:
 			var maze := Maze.new()

@@ -22,6 +22,25 @@ See [CI setup and test cases](docs/ci.md) and [Flatpak packaging assessment](doc
 
 ## Run
 
+### Browser demo (current Godot game)
+
+```bash
+docker compose -f compose.web.yml run --build --rm web-export
+docker compose -f compose.web.yml up -d web-demo
+```
+
+Open http://localhost:8081/play/. FoldRoom Playground loads the existing example,
+with Ball / Walk, Rooms / Tubes, editing and the external overview. Click Enter /
+Resume to play with keyboard and mouse. This exports the current Godot 4.4.1 project
+to an HTML canvas using WebAssembly and WebGL 2, with single-threaded templates,
+stream audio and no native FFB addon. The build requires only Docker Compose;
+it does not build or download the wheel dependency. JSON can be downloaded or
+pasted into Import; quick saves use browser storage. Desktop keyboard and mouse
+are required; this demo does not add touch controls.
+
+The Pages workflow builds the demo at `play/` alongside the existing video page
+on every relevant push to main. See [web export checks](docs/web-demo.md).
+
 ```bash
 # Native game, NVIDIA + X11 + Moza + PulseAudio
 docker compose up godot

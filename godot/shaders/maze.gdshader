@@ -12,7 +12,15 @@ uniform float zoom_coefficient = 1.1;
 uniform float actor_scale = 1.0;
 uniform float min_zoom = 0.2;
 uniform float max_zoom = 4.5;
+#ifdef FOLD_TUBES
+const bool tubes = true;
+#else
+#ifdef FOLD_ROOMS
+const bool tubes = false;
+#else
 uniform bool tubes = false;
+#endif
+#endif
 uniform sampler2D room_shapes : filter_nearest, repeat_disable;
 uniform highp sampler2D pipe_catalog : filter_linear, repeat_disable;
 uniform sampler2D topology : filter_nearest, repeat_disable;
@@ -20,6 +28,19 @@ uniform sampler2D markings : filter_linear, repeat_disable;
 uniform float time;
 uniform sampler2D balls : filter_nearest, repeat_disable;
 uniform int ballCount;
+// Runtime bounds prevent WebGL drivers from unrolling nested ray queries.
+uniform int portal_steps = 64;
+uniform int zoom_steps = 192;
+uniform int tube_steps = 256;
+uniform int face_count = 6;
+uniform int axis_count = 3;
+uniform int fitting_count = 15;
+#ifdef FOLD_BOX_PROFILES
+uniform int profile_state = 0;
+uniform sampler2D box_profiles : filter_nearest, repeat_disable;
+uniform sampler2D profile_links : filter_nearest, repeat_disable;
+int nextProfile(int state,int face){int index=state*2+face/4;return int(texelFetch(profile_links,ivec2(index%1024,index/1024),0)[face%4]+.5);}
+#endif
 
 vec4 roomData(int room,int column){int index=room*12+column;return texelFetch(topology,ivec2(index%1024,index/1024),0);}
 vec3 normalOf(int f){if(f==0)return vec3(1,0,0);if(f==1)return vec3(-1,0,0);if(f==2)return vec3(0,1,0);if(f==3)return vec3(0,-1,0);if(f==4)return vec3(0,0,1);return vec3(0,0,-1);}
@@ -27,18 +48,24 @@ vec3 turn(vec3 p,vec4 q){return p+2.*cross(q.xyz,cross(q.xyz,p)+q.w*p);}
 vec2 uvOf(vec3 p,int f){if(f<2)return p.zy/6.+.5;if(f<4)return p.xz/6.+.5;return p.xy/6.+.5;}
 vec3 colorOf(int f){if(f==0)return vec3(.92,.41,.38);if(f==1)return vec3(.33,.78,.69);if(f==2)return vec3(.85,.83,.73);if(f==3)return vec3(.39,.55,.88);if(f==4)return vec3(.69,.51,.83);return vec3(.93,.67,.38);}
 float passageRatio(int room,int face,float scaleValue){
+#ifdef FOLD_UNSCALED
+ return 1.;
+#else
  int index=room*6+face;
  float step=texelFetch(room_zoom,ivec2(index%1024,index/1024),0).r;
  return clamp(scaleValue*pow(zoom_coefficient,step),min_zoom,max_zoom)/scaleValue;
+#endif
 }
 vec3 zoomAnchor(int face,vec3 gravity){
  vec3 n=normalOf(face);
  return -(gravity-n*dot(gravity,n))*(tubes?1.65:3.);
 }
+#ifndef FOLD_UNSCALED
+#ifndef FOLD_TUBES
 float localZoomClearance(int room,vec3 p,vec3 gravity,float scaleValue){
  float gap=100.;
  float radius=3.;
- for(int face=0;face<6;face++){
+ for(int face=0;face<face_count;face++){
   float along=dot(p,normalOf(face));
   float ratio=passageRatio(room,face,scaleValue);
   if(ratio<=1.000001||along<=1.5)continue;
@@ -46,7 +73,7 @@ float localZoomClearance(int room,vec3 p,vec3 gravity,float scaleValue){
   vec3 anchor=zoomAnchor(face,gravity);
   vec3 center=anchor*(1.-width);
   float taper=(1.-1./ratio)/1.5;
-  for(int a=0;a<3;a++){
+  for(int a=0;a<axis_count;a++){
    if(a==face/2)continue;
    float upperSlope=(radius-anchor[a])*taper;
    float lowerSlope=(-radius-anchor[a])*taper;
@@ -97,6 +124,12 @@ float zoomClearance(int room,vec3 p,vec3 gravity,float scaleValue){
  }
  return gap;
 }
+#ifdef FOLD_BOX_PROFILES
+vec4 boxPlane(int room,int wall,int axis,vec3 gravity,float scaleValue,int state){
+ int index=state*18+wall*3+axis;
+ return texelFetch(box_profiles,ivec2(index%1024,index/1024),0);
+}
+#else
 float localMouthBound(int room,int mouth,int wall,vec3 gravity,float scaleValue){
  float ratio=passageRatio(room,mouth,scaleValue);
  float bound=3.;
@@ -148,7 +181,7 @@ float sharedMouthBound(int room,int mouth,int wall,vec3 gravity,float scaleValue
  }
  return bound;
 }
-vec4 boxPlane(int room,int wall,int axis,vec3 gravity,float scaleValue){
+vec4 boxPlane(int room,int wall,int axis,vec3 gravity,float scaleValue,int state){
  if(roomData(room,wall*2).x>.5)return vec4(0.);
  float positive=sharedMouthBound(room,axis*2,wall,gravity,scaleValue);
  float negative=sharedMouthBound(room,axis*2+1,wall,gravity,scaleValue);
@@ -159,11 +192,15 @@ vec4 boxPlane(int room,int wall,int axis,vec3 gravity,float scaleValue){
  vec3 n=normalOf(wall)+normalOf(axis*2)*(negative-positive)/6.;
  return vec4(n,(positive+negative)*.5)/length(n);
 }
+#endif
 vec3 zoomNormal(int room,vec3 p,vec3 gravity,float scaleValue){
  vec3 e=vec3(.002,0.,0.);
  return -normalize(vec3(zoomClearance(room,p+e.xyy,gravity,scaleValue)-zoomClearance(room,p-e.xyy,gravity,scaleValue),zoomClearance(room,p+e.yxy,gravity,scaleValue)-zoomClearance(room,p-e.yxy,gravity,scaleValue),zoomClearance(room,p+e.yyx,gravity,scaleValue)-zoomClearance(room,p-e.yyx,gravity,scaleValue)));
 }
+#endif
+#endif
 // Smooth aggregate height gradient: bump shading without square color cells.
+#ifndef FOLD_ROOMS
 float aggregateHash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 vec3 aggregateGradient(vec3 p){
  vec3 cell=floor(p),t=fract(p);
@@ -183,6 +220,7 @@ float pipeSlice(int mask,int z,vec2 xy){
  vec2 pixel=vec2(float(slice%64),float(slice/64))*49.+xy+.5;
  return texture(pipe_catalog,pixel/vec2(3136.,2401.)).r;
 }
+#ifndef FOLD_UNSCALED
 float bendDistance(vec3 p,vec3 a,vec3 b){
  vec3 corner=(a+b)*3.;
  vec3 offset=p-corner;
@@ -192,7 +230,7 @@ float bendDistance(vec3 p,vec3 a,vec3 b){
 }
 float analyticPipe(int mask,vec3 p){
  int count=0,first=-1,second=-1;
- for(int face=0;face<6;face++){
+ for(int face=0;face<face_count;face++){
   if((mask & (1<<face))==0)continue;
   if(count==0)first=face;
   if(count==1)second=face;
@@ -201,7 +239,7 @@ float analyticPipe(int mask,vec3 p){
  if(count==0)return 1.65-length(p);
  if(count==2 && first/2!=second/2)return 1.65-bendDistance(p,normalOf(first),normalOf(second));
  float distances[15];int used=0;float minimum=100.;
- for(int axis=0;axis<3;axis++){
+ for(int axis=0;axis<axis_count;axis++){
   if((mask & (3<<(axis*2)))==0)continue;
   vec3 radial=p;radial[axis]=0.;
   if((mask & (1<<(axis*2)))==0)radial[axis]=max(p[axis],0.);
@@ -209,18 +247,18 @@ float analyticPipe(int mask,vec3 p){
   distances[used]=length(radial);minimum=min(minimum,distances[used]);used++;
  }
  if(count>=3){
-  for(int a=0;a<6;a++){
+  for(int a=0;a<face_count;a++){
    if((mask & (1<<a))==0)continue;
-   for(int b=(a/2+1)*2;b<6;b++){
+   for(int b=(a/2+1)*2;b<face_count;b++){
     if((mask & (1<<b))==0)continue;
     distances[used]=bendDistance(p,normalOf(a),normalOf(b));minimum=min(minimum,distances[used]);used++;
    }
   }
  }
  float total=0.;
- for(int i=0;i<15;i++){if(i>=used)break;total+=exp((minimum-distances[i])/.07);}
+ for(int i=0;i<fitting_count;i++){if(i>=used)break;total+=exp((minimum-distances[i])/.07);}
  float clearance=1.65-minimum+.07*log(total);
- for(int face=0;face<6;face++){
+ for(int face=0;face<face_count;face++){
   if((mask & (1<<face))==0)continue;
   vec3 n=normalOf(face);float along=dot(p,n);
   float t=clamp((along-2.1)/.9,0.,1.);
@@ -229,19 +267,23 @@ float analyticPipe(int mask,vec3 p){
  }
  return clearance;
 }
+#endif
 float tubeClearance(int room, vec3 p){
  vec2 shape=texelFetch(room_shapes,ivec2(room%1024,room/1024),0).rg;
  int mask=int(shape.r+.5);
  vec3 grid=clamp((p+vec3(3.6))/7.2*48.,vec3(0.),vec3(47.99999));
  int z=int(floor(grid.z));
  float clearance;
+#ifndef FOLD_UNSCALED
  if(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).b>.5)clearance=analyticPipe(mask,p);
- else clearance=mix(pipeSlice(mask,z,grid.xy),pipeSlice(mask,z+1,grid.xy),fract(grid.z));
+ else
+#endif
+ clearance=mix(pipeSlice(mask,z,grid.xy),pipeSlice(mask,z+1,grid.xy),fract(grid.z));
  int corners=int(shape.g+.5);
  if(corners==0)return clearance;
  int bit=0;
- for(int a=0;a<6;a++){
-  for(int b=(a/2+1)*2;b<6;b++){
+ for(int a=0;a<face_count;a++){
+  for(int b=(a/2+1)*2;b<face_count;b++){
    if((corners & (1<<bit))!=0){
     int axis=3-a/2-b/2;
     vec3 offset=vec3(min(dot(p,normalOf(a)),0.),min(dot(p,normalOf(b)),0.),p[axis]);
@@ -258,14 +300,18 @@ float smoothTaper(float t){
  return t*t*t*(t*(6.*t-15.)+10.);
 }
 vec4 tubeDeformation(int room,vec3 p,vec3 gravity,float scaleValue){
+
+#ifdef FOLD_UNSCALED
+ return vec4(p,1.);
+#else
  vec3 mapped=p;float metric=1.;
  if(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).b<.5)return vec4(p,metric);
- for(int face=0;face<6;face++){
+ for(int face=0;face<face_count;face++){
   float ratio=passageRatio(room,face,scaleValue);
   if(ratio<=1.000001)continue;
   vec3 n=normalOf(face);
   float weight=smoothTaper((dot(p,n)-1.5)/1.5);
-  for(int axis=0;axis<3;axis++){
+  for(int axis=0;axis<axis_count;axis++){
    if(axis!=face/2)weight*=1.-smoothTaper((abs(p[axis])-1.65)/1.35);
   }
   if(weight<=0.)continue;
@@ -276,6 +322,7 @@ vec4 tubeDeformation(int room,vec3 p,vec3 gravity,float scaleValue){
   metric*=width/(1.+6.6*(1.-width));
  }
  return vec4(mapped,metric);
+#endif
 }
 float deformedTubeClearance(int room,vec3 p,vec3 gravity,float scaleValue){
  vec4 query=tubeDeformation(room,p,gravity,scaleValue);
@@ -288,7 +335,7 @@ vec2 tubeRibs(int room,vec3 p,vec3 n){
  int mask=int(texelFetch(room_shapes,ivec2(room%1024,room/1024),0).r+.5);
  vec2 ribs=vec2(0.);
  float total=0.;
- for(int axis=0;axis<3;axis++){
+ for(int axis=0;axis<axis_count;axis++){
   if((mask & (3<<(axis*2)))==0)continue;
   vec2 radial=axis==0?p.yz:(axis==1?p.zx:p.xy);
   float radius=length(radial);
@@ -304,14 +351,20 @@ vec2 tubeRibs(int room,vec3 p,vec3 n){
  return ribs/max(total,.0001);
 }
 
+#endif
+
 void fragment(){
  vec2 screen=((vec2(UV.x,1.0-UV.y)*resolution)*2.-resolution)/resolution.y;
  vec3 ray=normalize(forward+right*screen.x*.72+up*screen.y*.72);
  // Keep sphere lighting aligned with the player's floor through every portal.
  vec3 ballLight=normalize(gravityUp);
  vec3 localGravity=gravityUp;float scaleValue=actor_scale;
+ int geometryState=0;
+#ifdef FOLD_BOX_PROFILES
+ geometryState=profile_state;
+#endif
  vec3 p=eye;int room=roomId;float distance=0.;vec3 color=vec3(.035,.055,.060);
- for(int hop=0;hop<64;hop++){
+ for(int hop=0;hop<portal_steps;hop++){
    vec3 safeRay=vec3(abs(ray.x)<.000001?.000001:ray.x,abs(ray.y)<.000001?.000001:ray.y,abs(ray.z)<.000001?.000001:ray.z);
    vec3 t=(sign(safeRay)*3.-p)/safeRay;
    float travel=min(t.x,min(t.y,t.z));
@@ -319,12 +372,14 @@ void fragment(){
    int face=axis*2+(ray[axis]<0.?1:0);
    bool zoomWall=false;
    bool planeWall=false;vec3 planeNormal=vec3(0.);
+#ifndef FOLD_UNSCALED
+#ifndef FOLD_TUBES
    if(!tubes && boxHasZoom(room)){
     for(int wall=0;wall<boxFaceCount(room);wall++){
      if(roomData(room,wall*2).x>.5)continue;
      for(int crossAxis=0;crossAxis<boxFaceCount(room)/2;crossAxis++){
       if(crossAxis==wall/2)continue;
-      vec4 plane=boxPlane(room,wall,crossAxis,localGravity,scaleValue);
+      vec4 plane=boxPlane(room,wall,crossAxis,localGravity,scaleValue,geometryState);
       vec3 n=plane.xyz;if(dot(n,n)<.5)continue;
       float gap=plane.w-dot(n,p);
       float rate=dot(n,ray);
@@ -357,6 +412,10 @@ void fragment(){
      }
      if(finish<=begin)continue;
      int dest=int(data.x+.5)-1;int destFace=int(data.y+.5);
+     int neighborState=0;
+#ifdef FOLD_BOX_PROFILES
+     neighborState=nextProfile(geometryState,mouth);
+#endif
      vec4 q=roomData(room,mouth*2+1);
      float ratio=passageRatio(room,mouth,scaleValue);
      vec3 anchor=zoomAnchor(mouth,localGravity);
@@ -369,7 +428,7 @@ void fragment(){
       if(roomData(dest,wall*2).x>.5)continue;
       for(int axis=0;axis<boxFaceCount(room)/2;axis++){
        if(axis==wall/2)continue;
-       vec4 plane=boxPlane(dest,wall,axis,destGravity,destScale);
+       vec4 plane=boxPlane(dest,wall,axis,destGravity,destScale,neighborState);
        if(dot(plane.xyz,plane.xyz)<.5)continue;
        float gap=plane.w-dot(plane.xyz,mapped+mappedRay*begin);
        float rate=dot(plane.xyz,mappedRay);
@@ -385,28 +444,31 @@ void fragment(){
    }
    float zoomAlong=0.;
    bool zoomRoom=!tubes && boxHasZoom(room);
-   for(int step=0;step<192;step++){
+   for(int step=0;step<zoom_steps;step++){
     if(tubes || !zoomRoom)break;
     float gap=zoomClearance(room,p+ray*zoomAlong,localGravity,scaleValue);
     if(gap<.001){zoomWall=true;planeWall=false;travel=zoomAlong;break;}
     zoomAlong+=clamp(gap*.5,.0005,.08);
     if(zoomAlong>=travel)break;
    }
+#endif
+#endif
    bool tubeWall=false;
+#ifndef FOLD_ROOMS
    if(tubes){
     float along=0.;
-    for(int step=0;step<256;step++){
+    for(int step=0;step<tube_steps;step++){
      float gap=deformedTubeClearance(room,p+ray*along,localGravity,scaleValue);
      if(gap<.001){zoomWall=false;tubeWall=true;travel=along;break;}
      along+=gap*.5;
      if(along>=travel)break;
      // Exhausted grazing rays terminate on the near surface, never behind it.
-     if(step==255){zoomWall=false;tubeWall=true;travel=along;}
+     if(step==tube_steps-1){zoomWall=false;tubeWall=true;travel=along;}
     }
    }
+#endif
    int nearestBall=-1;float nearestDistance=travel;
-   for(int ball=0;ball<128;ball++){
-     if(ball>=ballCount)break;
+   for(int ball=0;ball<ballCount;ball++){
      vec4 sphere=texelFetch(balls,ivec2(0,ball),0);
      vec4 frame=texelFetch(balls,ivec2(1,ball),0);
      if(int(frame.w+.5)!=room)continue;
@@ -450,9 +512,14 @@ void fragment(){
      scaleValue=clamp(scaleValue*ratio,min_zoom,max_zoom);
      localGravity=turn(localGravity,q);
      ray=turn(ray,q);p=turn(mapped,q)+normalOf(destFace)*3.+ray*(tubes?.00001:.001);
+#ifdef FOLD_BOX_PROFILES
+     geometryState=nextProfile(geometryState,face);
+#endif
      room=int(data.x+.5)-1;continue;
    }
    vec3 wallNormal=normalOf(face);
+#ifndef FOLD_UNSCALED
+#ifndef FOLD_TUBES
    if(zoomWall){
      wallNormal=planeWall?planeNormal:zoomNormal(room,hit,localGravity,scaleValue);
      int wallAxis=abs(wallNormal.x)>=abs(wallNormal.y)&&abs(wallNormal.x)>=abs(wallNormal.z)?0:(abs(wallNormal.y)>=abs(wallNormal.z)?1:2);
@@ -460,7 +527,7 @@ void fragment(){
      // A shared mouth cut extends a closed side wall into this approach.
      // Use that side's material instead of painting a ghost portal face.
      float sideScore=.0001;
-     for(int side=0;side<6;side++){
+     for(int side=0;side<face_count;side++){
       if(roomData(room,side*2).x>.5)continue;
       float score=dot(wallNormal,normalOf(side));
       if(score>sideScore){sideScore=score;face=side;}
@@ -468,6 +535,9 @@ void fragment(){
      uv=uvOf(hit,face);
      data=vec4(0.);
    }
+#endif
+#endif
+#ifndef FOLD_ROOMS
    if(tubeWall){
      vec3 e=vec3(.03,0.,0.);
      vec3 n=-normalize(vec3(deformedTubeClearance(room,hit+e.xyy,localGravity,scaleValue)-deformedTubeClearance(room,hit-e.xyy,localGravity,scaleValue),deformedTubeClearance(room,hit+e.yxy,localGravity,scaleValue)-deformedTubeClearance(room,hit-e.yxy,localGravity,scaleValue),deformedTubeClearance(room,hit+e.yyx,localGravity,scaleValue)-deformedTubeClearance(room,hit-e.yyx,localGravity,scaleValue)));
@@ -492,6 +562,7 @@ void fragment(){
      color=mix(color,vec3(.07,.105,.12),1.-exp(-distance*.012));
      break;
    }
+#endif
    vec3 base=colorOf(face);
    vec2 grid=abs(fract(uv*12.-.5)-.5)/max(fwidth(uv*12.),vec2(.005));
    float line=1.-min(min(grid.x,grid.y),1.);
@@ -503,8 +574,7 @@ void fragment(){
    float centerGlow=.17*exp(-length(uv-.5)*2.);
    color=base*(light+centerGlow)*ao;
    color*=1.-line*.13-bigLine*.07;
-   for(int ball=0;ball<128;ball++){
-     if(ball>=ballCount)break;
+   for(int ball=0;ball<ballCount;ball++){
      vec4 sphere=texelFetch(balls,ivec2(0,ball),0);
      vec4 frame=texelFetch(balls,ivec2(1,ball),0);
      if(int(frame.w+.5)!=room)continue;

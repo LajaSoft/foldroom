@@ -443,20 +443,25 @@ func box_wall_planes(room_id: int, up: Vector3, scale_value: float, propagated: 
 		for axis in range(3):
 			if axis == int(wall / 2):
 				continue
-			var positive := shared_mouth_bound(room_id, axis * 2, wall, up, scale_value, propagated)
-			var negative := shared_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value, propagated)
-			var own_positive := local_mouth_bound(room_id, axis * 2, wall, up, scale_value)
-			var own_negative := local_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value)
-			if positive >= own_positive - 0.000001 and negative >= own_negative - 0.000001:
-				continue
-			if minf(positive, negative) >= HALF - 0.000001:
-				continue
-			var slope := (negative - positive) / (2.0 * HALF)
-			var normal: Vector3 = NORMALS[wall] + NORMALS[axis * 2] * slope
-			planes.append(Plane(normal.normalized(), (positive + negative) * 0.5 / normal.length()))
+			var plane := box_wall_plane(room_id, wall, axis, up, scale_value, propagated)
+			if plane.normal.length_squared() > 0.5:
+				planes.append(plane)
 	planes.make_read_only()
 	remember(box_profiles, key, planes, GEOMETRY_PROFILE_LIMIT)
 	return planes
+
+func box_wall_plane(room_id: int, wall: int, axis: int, up: Vector3, scale_value: float, propagated: bool = true) -> Plane:
+	var positive := shared_mouth_bound(room_id, axis * 2, wall, up, scale_value, propagated)
+	var negative := shared_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value, propagated)
+	var own_positive := local_mouth_bound(room_id, axis * 2, wall, up, scale_value)
+	var own_negative := local_mouth_bound(room_id, axis * 2 + 1, wall, up, scale_value)
+	if positive >= own_positive - 0.000001 and negative >= own_negative - 0.000001:
+		return Plane()
+	if minf(positive, negative) >= HALF - 0.000001:
+		return Plane()
+	var slope := (negative - positive) / (2.0 * HALF)
+	var normal: Vector3 = NORMALS[wall] + NORMALS[axis * 2] * slope
+	return Plane(normal.normalized(), (positive + negative) * 0.5 / normal.length())
 
 func constrain_zoom(actor: Dictionary) -> void:
 	var radius: float = actor.get("radius", 0.32)

@@ -8,6 +8,13 @@ const MAP_DISTANCE := 6.0 * 2.0 / 3.0
 const CAMERA_MARGIN := 0.01
 var surface: ColorRect
 var material_ray: ShaderMaterial
+var full_shader: Shader
+var web_shaders := {}
+var use_web_shaders := false
+var needs_box_profiles := false
+var box_profile_indices := {}
+var box_profile_texture: ImageTexture
+var profile_link_texture: ImageTexture
 var topology_image: Image
 var zoom_texture: ImageTexture
 var shape_texture: ImageTexture
@@ -34,7 +41,10 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	material_ray = ShaderMaterial.new()
-	material_ray.shader = load("res://shaders/maze.gdshader")
+	full_shader = load("res://shaders/maze.gdshader")
+	material_ray.shader = full_shader
+	if OS.has_feature("web"):
+		prepare_web_shader()
 	surface = ColorRect.new()
 	surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -56,6 +66,9 @@ func _ready() -> void:
 	material_ray.set_shader_parameter("balls", ball_texture)
 	material_ray.set_shader_parameter("markings", marks_texture)
 	setup_overview()
+
+func prepare_web_shader() -> void:
+	use_web_shaders = true
 
 func setup_overview() -> void:
 	overview_container = SubViewportContainer.new()
@@ -131,6 +144,21 @@ func setup_overview() -> void:
 	overview_root.add_child(sphere_instances)
 
 func rebuild(maze: FoldMaze) -> void:
+	box_profile_indices.clear()
+	if use_web_shaders:
+		var has_scaling := maze.rooms.any(func(room): return room.links.any(func(link): return link != null and link.get("zoom", 0) != 0))
+		needs_box_profiles = has_scaling and not maze.tubes
+		var variant := (2 if maze.tubes else 0) + (1 if has_scaling else 0)
+		if not web_shaders.has(variant):
+			var shader := Shader.new()
+			var definitions := "#define FOLD_TUBES\n" if maze.tubes else "#define FOLD_ROOMS\n"
+			if needs_box_profiles:
+				definitions += "#define FOLD_BOX_PROFILES\n"
+			if not has_scaling:
+				definitions += "#define FOLD_UNSCALED\n"
+			shader.code = definitions + full_shader.code
+			web_shaders[variant] = shader
+		material_ray.shader = web_shaders[variant]
 	map_radius = 6.0
 	for room in maze.rooms:
 		map_radius = maxf(map_radius, Vector3(room.cell).length() * 6.0 + 6.0)
@@ -166,6 +194,59 @@ func rebuild(maze: FoldMaze) -> void:
 	for room in maze.rooms:
 		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), maze.tube_corner_mask(room.id), 1 if room.links.any(func(link): return link != null and link.get("zoom", 0) != 0) else 0, 6))
 	shape_texture.set_image(shape_image)
+
+static func profile_key(room: int, gravity: Vector3, scale_value: float) -> String:
+	return "%d:%d:%d:%d:%d" % [room, roundi(gravity.x * 1000000), roundi(gravity.y * 1000000), roundi(gravity.z * 1000000), roundi(scale_value * 1000000)]
+
+func prepare_box_profiles(maze: FoldMaze, camera: Dictionary) -> void:
+	var key := profile_key(camera.room, camera.gravityUp, camera.zoomScale)
+	if box_profile_indices.has(key):
+		material_ray.set_shader_parameter("profile_state", box_profile_indices[key])
+		return
+	# Bake connected gravity/scale states with the physics plane equations.
+	# Canonical keys merge numerical drift around reversible portal cycles.
+	var states := [{"room": camera.room, "gravity": camera.gravityUp, "scale": camera.zoomScale, "links": []}]
+	var indices := {key: 0}
+	var cursor := 0
+	while cursor < states.size():
+		var state: Dictionary = states[cursor]
+		for face in range(6):
+			var link = maze.rooms[state.room].links[face]
+			if link == null:
+				state.links.append(0)
+				continue
+			var ratio := maze.passage_ratio(state.room, face, state.scale)
+			var gravity: Vector3 = (link.q * state.gravity).snapped(Vector3.ONE * 0.000001)
+			var scale_value := clampf(state.scale * ratio, Maze.MIN_ZOOM, Maze.MAX_ZOOM)
+			var next_key := profile_key(link.target, gravity, scale_value)
+			if not indices.has(next_key):
+				indices[next_key] = states.size()
+				states.append({"room": link.target, "gravity": gravity, "scale": scale_value, "links": []})
+			state.links.append(indices[next_key])
+		cursor += 1
+	var planes := Image.create(1024, maxi(1, ceili(states.size() * 18.0 / 1024.0)), false, Image.FORMAT_RGBAF)
+	var links := Image.create(1024, maxi(1, ceili(states.size() * 2.0 / 1024.0)), false, Image.FORMAT_RGBAF)
+	for index in range(states.size()):
+		var state: Dictionary = states[index]
+		for face in range(6):
+			var link_index: int = index * 2 + face / 4
+			var pixel := links.get_pixel(link_index % 1024, link_index / 1024)
+			pixel[face % 4] = state.links[face]
+			links.set_pixel(link_index % 1024, link_index / 1024, pixel)
+			if maze.rooms[state.room].links[face] != null:
+				continue
+			for axis in range(3):
+				if axis == face / 2:
+					continue
+				var plane := maze.box_wall_plane(state.room, face, axis, state.gravity, state.scale)
+				var address: int = index * 18 + face * 3 + axis
+				planes.set_pixel(address % 1024, address / 1024, Color(plane.normal.x, plane.normal.y, plane.normal.z, plane.d))
+	box_profile_texture = ImageTexture.create_from_image(planes)
+	profile_link_texture = ImageTexture.create_from_image(links)
+	material_ray.set_shader_parameter("box_profiles", box_profile_texture)
+	material_ray.set_shader_parameter("profile_links", profile_link_texture)
+	box_profile_indices = indices
+	material_ray.set_shader_parameter("profile_state", 0)
 
 func view(maze: FoldMaze, player: Dictionary) -> Dictionary:
 	var result := Motion.camera_frame(maze, player)
@@ -261,6 +342,8 @@ func sync(maze: FoldMaze, player: Dictionary, balls: Array) -> void:
 	material_ray.set_shader_parameter("zoom_coefficient", maze.zoom_coefficient)
 	material_ray.set_shader_parameter("tubes", maze.tubes)
 	frame = view(maze, player)
+	if needs_box_profiles:
+		prepare_box_profiles(maze, frame)
 	material_ray.set_shader_parameter("actor_scale", frame.zoomScale)
 	outside = frame.outside
 	surface.visible = not outside

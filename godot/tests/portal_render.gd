@@ -20,6 +20,9 @@ func capture() -> Image:
 func run() -> void:
 	renderer = Renderer.new()
 	root.add_child(renderer)
+	var web_demo := "--web-demo-shader" in OS.get_cmdline_user_args()
+	if web_demo:
+		renderer.prepare_web_shader()
 	for kind in ["straight", "up", "down"]:
 		var maze := Maze.new()
 		var link := maze.create(0, 5, kind, Vector3.UP)
@@ -64,6 +67,9 @@ func run() -> void:
 		failed = failed or not passed
 		print("PORTAL RENDER ", "PASS " if passed else "FAIL ", kind, " same-pose mean pixel difference=", mean, " opaque coverage=", coverage)
 	await test_tube_seams()
+	if web_demo:
+		quit(1 if failed else 0)
+		return
 	await test_straight_tube_render()
 	await test_flat_junction_render()
 	await test_bent_tube_render()
