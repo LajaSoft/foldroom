@@ -13,3 +13,6 @@ for file in index.html index.js index.wasm index.pck; do
     test -s "/output/play/$file"
 done
 touch /output/.nojekyll
+# The container runs as root to use its bundled templates. Hand artifacts back
+# to the caller so subsequent host/CI steps can add the Pages index and media.
+chown -R "${OUTPUT_UID}:${OUTPUT_GID}" /output

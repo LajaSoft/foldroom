@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: docker/web/Dockerfile
+    environment:
+      OUTPUT_UID: "${LOCAL_UID:-1000}"
+      OUTPUT_GID: "${LOCAL_GID:-1000}"
     volumes:
       - ./artifacts/pages:/output
   web-demo:
