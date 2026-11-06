@@ -1,8 +1,8 @@
 class_name FoldSound
 extends AudioStreamPlayer
 
-const TRACKS := ["ratio drive", "clockwork folktronica", "round folk", "trance style"]
-const MUSIC_SCRIPTS := [preload("res://scripts/music_ratio.gd"), preload("res://scripts/music_conversation.gd"), preload("res://scripts/music_anthem.gd"), preload("res://scripts/music.gd")]
+const TRACKS := ["ratio drive", "clockwork folktronica", "round folk", "trance style", "generated dm"]
+const MUSIC_SCRIPTS := [preload("res://scripts/music_ratio.gd"), preload("res://scripts/music_conversation.gd"), preload("res://scripts/music_anthem.gd"), preload("res://scripts/music.gd"), preload("res://scripts/music_generated_dm.gd")]
 var track_index := 0
 var music = MUSIC_SCRIPTS[0].new()
 

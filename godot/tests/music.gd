@@ -36,6 +36,7 @@ func _init() -> void:
 	for i in range(22050 * 5):
 		anthem.sample()
 	check(anthem.gain == 0.0 and anthem.voices.is_empty(), "Fanfare pause releases all voices")
+	test_generated_dm()
 	test_ratio_drive()
 	test_conversation()
 	sound.free()
@@ -252,3 +253,58 @@ func test_ratio_drive() -> void:
 	for frame in range(22050 * 5):
 		composition.sample()
 	check(composition.master_frame == frozen_clock and composition.lane_steps == frozen_steps and composition.voices.is_empty() and composition.gain == 0.0, "Pause freezes rational clocks and releases all voices")
+
+func test_generated_dm() -> void:
+	var Generated = preload("res://scripts/music_generated_dm.gd")
+	var composition = Generated.new()
+	var exact_source := true
+	var section_lengths := [8, 16, 17, 8, 16, 8]
+	for section in range(section_lengths.size()):
+		for local_bar in range(section_lengths[section]):
+			composition.begin_bar()
+			exact_source = exact_source and composition.section_index == section and composition.section_bar == local_bar
+			for part in range(2):
+				var name: String = ["Vocal", "Ins"][part]
+				var pattern: int = Generated.SCORE.sections[section][name][local_bar]
+				exact_source = exact_source and composition.current_parts[part] == Generated.SCORE.patterns[pattern]
+	check(exact_source and composition.bar == 72, "Generated Dm preserves both original voices across all 73 source bars")
+	composition.begin_bar()
+	check(composition.cycle == 1 and composition.section_index == 1 and composition.section_bar == 0, "Generated Dm loops to verse after playing the intro once")
+	var source: Array = Generated.SCORE.patterns[int(Generated.SCORE.sections[1].Vocal[2])]
+	var original: Array = source.duplicate(true)
+	var varied: Array = composition.develop(source, 2)
+	check(source == original and varied != source and varied[0] == source[0] and varied[-1] == source[-1], "Improvisation varies interior notes while preserving source, head and cadence")
+	var bounded := true
+	for i in range(500):
+		composition.begin_bar()
+		bounded = bounded and composition.current_parts.size() == 2 and composition.voices.is_empty()
+		if Generated.SCORE.sections[composition.section_index].name == "interlude":
+			var pattern: int = Generated.SCORE.sections[composition.section_index].Ins[composition.section_bar]
+			bounded = bounded and composition.current_parts[1] == Generated.SCORE.patterns[pattern]
+	check(bounded, "Long form bounds phrase memory and preserves chromatic interludes")
+	var sound = preload("res://scripts/sound.gd").new()
+	sound.music.volume = 0.27
+	sound.music.enabled = true
+	sound.select_music(sound.TRACKS.find("generated dm"))
+	composition = sound.music
+	check(composition.volume == 0.27 and composition.enabled, "New track selection preserves volume and playback")
+	var started := Time.get_ticks_usec()
+	var peak := 0.0
+	var audible := 0.0
+	for frame in range(22050 * 16):
+		if frame % 2205 == 0:
+			composition.advance(0.1, 20.0 if frame > 22050 * 4 else 0.0)
+		var sample: Vector2 = composition.sample()
+		check_finite(sample)
+		peak = maxf(peak, maxf(absf(sample.x), absf(sample.y)))
+		audible += sample.length_squared()
+	check(peak > 0.1 and peak < 2.0 and audible > 1.0 and composition.voices.size() < 48 and composition.bpm == 145.0, "New track renders finite audible bounded audio at 145 BPM through acceleration")
+	check(Time.get_ticks_usec() - started < 16000000, "New track renders faster than real time")
+	composition.enabled = false
+	var frozen: int = composition.tick
+	for frame in range(22050 * 5):
+		composition.sample()
+	check(composition.tick == frozen and composition.voices.is_empty() and composition.gain == 0.0, "New track pause freezes score and releases voices")
+	sound.select_music(0)
+	check(sound.track_index == 0 and sound.music.volume == 0.27 and not sound.music.enabled, "Switching back preserves volume and pause")
+	sound.free()

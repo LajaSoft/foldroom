@@ -71,6 +71,7 @@ func run() -> void:
 		quit(1 if failed else 0)
 		return
 	await test_straight_tube_render()
+	await test_fast_tube_trace()
 	await test_flat_junction_render()
 	await test_bent_tube_render()
 	await test_open_corner_render()
@@ -125,7 +126,7 @@ func test_straight_tube_render() -> void:
 	actual.save_png("res://tests/straight-tube-smoke.png")
 	var original: Shader = renderer.material_ray.shader
 	var reference := Shader.new()
-	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", "float tubeClearance(int room, vec3 p){ if(room==0)return 1.65-length(p.xy);")
+	reference.code = original.code.replace("float tubeClearance(int room, vec3 p,vec4 shape){", "float tubeClearance(int room, vec3 p,vec4 shape){ if(room==0)return 1.65-length(p.xy);")
 	renderer.material_ray.shader = reference
 	var expected: Image = await capture()
 	var difference := 0.0
@@ -139,6 +140,39 @@ func test_straight_tube_render() -> void:
 	failed = failed or not passed
 	print("STRAIGHT TUBE RENDER ", "PASS " if passed else "FAIL ", " analytic cylinder difference=", mean)
 	renderer.material_ray.shader = original
+
+func test_fast_tube_trace() -> void:
+	for axis in range(3):
+		var maze := Maze.new()
+		var direction: Vector3 = Maze.NORMALS[axis * 2]
+		var up: Vector3 = Maze.NORMALS[((axis + 1) % 3) * 2]
+		maze.create(0, axis * 2, "straight", up)
+		maze.create(0, axis * 2 + 1, "straight", up)
+		maze.tubes = true
+		var player := Motion.initial_player()
+		player.cameraUp = up
+		renderer.rebuild(maze)
+		for offset in [0.0, 1.55]:
+			player.p = up * offset
+			player.cameraForward = (direction + up * 0.12).normalized()
+			renderer.sync(maze, player, [])
+			renderer.material_ray.set_shader_parameter("tube_fast_trace", true)
+			var actual: Image = await capture()
+			renderer.material_ray.set_shader_parameter("tube_fast_trace", false)
+			var expected: Image = await capture()
+			var difference := 0.0
+			var samples := 0
+			for x in range(0, actual.get_width(), 4):
+				for y in range(0, actual.get_height(), 4):
+					var a := actual.get_pixel(x, y)
+					var b := expected.get_pixel(x, y)
+					difference += absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
+					samples += 1
+			var mean := difference / (samples * 3.0)
+			var passed := mean < 0.02
+			failed = failed or not passed
+			print("FAST TUBE TRACE ", "PASS " if passed else "FAIL ", " axis=", axis, " offset=", offset, " marching difference=", mean)
+	renderer.material_ray.set_shader_parameter("tube_fast_trace", true)
 
 func test_flat_junction_render() -> void:
 	var maze := Maze.new()
@@ -154,7 +188,7 @@ func test_flat_junction_render() -> void:
 	var actual: Image = await capture()
 	var original: Shader = renderer.material_ray.shader
 	var reference := Shader.new()
-	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", CATALOGUE_REFERENCE + "float tubeClearance(int room, vec3 p){ return referenceCatalogue(room,p);")
+	reference.code = original.code.replace("float tubeClearance(int room, vec3 p,vec4 shape){", CATALOGUE_REFERENCE + "float tubeClearance(int room, vec3 p,vec4 shape){ return referenceCatalogue(room,p);")
 	renderer.material_ray.shader = reference
 	var expected: Image = await capture()
 	var difference := 0.0
@@ -191,7 +225,7 @@ func test_bent_tube_render() -> void:
 	actual.save_png("res://tests/bent-tube-smoke.png")
 	var original: Shader = renderer.material_ray.shader
 	var reference := Shader.new()
-	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", "float tubeClearance(int room, vec3 p){ if(room==0)return 1.65-length(vec2(length(p.xz-vec2(3.))-3.,p.y));")
+	reference.code = original.code.replace("float tubeClearance(int room, vec3 p,vec4 shape){", "float tubeClearance(int room, vec3 p,vec4 shape){ if(room==0)return 1.65-length(vec2(length(p.xz-vec2(3.))-3.,p.y));")
 	renderer.material_ray.shader = reference
 	var expected: Image = await capture()
 	var difference := 0.0
@@ -257,8 +291,8 @@ func test_shared_corner_floor_render() -> void:
 	var original: Shader = renderer.material_ray.shader
 	var reference := Shader.new()
 	# Independent world-space rounded rectangle, including the outer corner.
-	var hall_reference := "float tubeClearance(int room, vec3 p){ float field=referenceCatalogue(room,p); if(room>3)return field; vec2 offset=vec2(room==1||room==3?6.:0.,room>=2?6.:0.); vec2 outside=max(abs(p.xy+offset-vec2(3.))-vec2(3.),vec2(0.)); return max(field,1.65-length(vec3(outside,p.z)));"
-	reference.code = original.code.replace("float tubeClearance(int room, vec3 p){", CATALOGUE_REFERENCE + hall_reference)
+	var hall_reference := "float tubeClearance(int room, vec3 p,vec4 shape){ float field=referenceCatalogue(room,p); if(room>3)return field; vec2 offset=vec2(room==1||room==3?6.:0.,room>=2?6.:0.); vec2 outside=max(abs(p.xy+offset-vec2(3.))-vec2(3.),vec2(0.)); return max(field,1.65-length(vec3(outside,p.z)));"
+	reference.code = original.code.replace("float tubeClearance(int room, vec3 p,vec4 shape){", CATALOGUE_REFERENCE + hall_reference)
 	renderer.material_ray.shader = reference
 	var expected: Image = await capture()
 	var difference := 0.0

@@ -9,7 +9,7 @@ const CAMERA_MARGIN := 0.01
 var surface: ColorRect
 var material_ray: ShaderMaterial
 var full_shader: Shader
-var web_shaders := {}
+var shader_variants := {}
 var use_web_shaders := false
 var needs_box_profiles := false
 var box_profile_indices := {}
@@ -145,20 +145,24 @@ func setup_overview() -> void:
 
 func rebuild(maze: FoldMaze) -> void:
 	box_profile_indices.clear()
-	if use_web_shaders:
+	needs_box_profiles = false
+	material_ray.shader = full_shader
+	if use_web_shaders or maze.tubes:
 		var has_scaling := maze.rooms.any(func(room): return room.links.any(func(link): return link != null and link.get("zoom", 0) != 0))
 		needs_box_profiles = has_scaling and not maze.tubes
-		var variant := (2 if maze.tubes else 0) + (1 if has_scaling else 0)
-		if not web_shaders.has(variant):
+		var variant := (2 if maze.tubes else 0) + (1 if has_scaling else 0) + (4 if maze.tubes and maze.subdivision_tubes else 0)
+		if not shader_variants.has(variant):
 			var shader := Shader.new()
 			var definitions := "#define FOLD_TUBES\n" if maze.tubes else "#define FOLD_ROOMS\n"
+			if maze.tubes and maze.subdivision_tubes:
+				definitions += "#define FOLD_SUBDIVISION\n"
 			if needs_box_profiles:
 				definitions += "#define FOLD_BOX_PROFILES\n"
 			if not has_scaling:
 				definitions += "#define FOLD_UNSCALED\n"
 			shader.code = definitions + full_shader.code
-			web_shaders[variant] = shader
-		material_ray.shader = web_shaders[variant]
+			shader_variants[variant] = shader
+		material_ray.shader = shader_variants[variant]
 	map_radius = 6.0
 	for room in maze.rooms:
 		map_radius = maxf(map_radius, Vector3(room.cell).length() * 6.0 + 6.0)
@@ -191,8 +195,19 @@ func rebuild(maze: FoldMaze) -> void:
 	zoom_texture.set_image(zoom_image)
 	topology_texture.set_image(topology_image)
 	var shape_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() / 1024.0)), false, Image.FORMAT_RGBAF)
+	var subdivision_roots := {}
+	if maze.tubes and maze.subdivision_tubes:
+		var data := Maze.Subdivision.gpu_data(maze.prepare_subdivision())
+		subdivision_roots = data.roots
+		material_ray.set_shader_parameter("subdivision_vertices", data.vertices)
+		material_ray.set_shader_parameter("subdivision_triangles", data.triangles)
+		material_ray.set_shader_parameter("subdivision_nodes", data.nodes)
 	for room in maze.rooms:
 		shape_image.set_pixel(room.id % 1024, room.id / 1024, Color(maze.tube_shape_mask(room.id), maze.tube_corner_mask(room.id), 1 if room.links.any(func(link): return link != null and link.get("zoom", 0) != 0) else 0, 6))
+		if maze.tubes and maze.subdivision_tubes:
+			var shape := shape_image.get_pixel(room.id % 1024, room.id / 1024)
+			shape.a = subdivision_roots[Vector2i(int(shape.r), maze.subdivision_corners(room.id))]
+			shape_image.set_pixel(room.id % 1024, room.id / 1024, shape)
 	shape_texture.set_image(shape_image)
 
 static func profile_key(room: int, gravity: Vector3, scale_value: float) -> String:

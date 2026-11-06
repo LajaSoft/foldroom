@@ -96,7 +96,9 @@ func run() -> void:
 	test_cached_fast_scene()
 	test_geometry_memo()
 	test_saved_smooth_passage()
+	test_saved_straight_passage()
 	test_smooth_zoom_geometry()
+	test_straight_zoom_taper()
 	test_round_zoom_mouth()
 	test_passage_zoom()
 	test_tube_sample_cache()
@@ -119,6 +121,7 @@ func run() -> void:
 	test_round_tube_junctions()
 	test_hall_corner_clearance()
 	test_open_cycle_corners()
+	test_zoom_open_corner_rule()
 	test_open_hall_columns()
 	test_shared_hall_support_planes()
 	test_shared_hall_has_no_inner_rim()
@@ -873,6 +876,31 @@ func test_open_cycle_corners() -> void:
 	maze.remove(north.target, 0)
 	check(maze.tube_shape_mask(north.target) != old, "Removing an opening invalidates the local shape cache")
 
+func test_zoom_open_corner_rule() -> void:
+	for a in range(6):
+		for b in range((int(a / 2) + 1) * 2, 6):
+			var maze := Maze.new()
+			var up: Vector3 = Maze.NORMALS[(3 - int(a / 2) - int(b / 2)) * 2]
+			var first := maze.create(0, a, "straight", up)
+			var second := maze.create(0, b, "straight", up)
+			maze.create(first.target, b, "straight", up)
+			check(maze.adjust_zoom(0, a, 1), "Incomplete square allows zoom in every orientation")
+			var revision := maze.topology_revision
+			check(maze.create(second.target, a, "straight", up).is_empty(), "Closing square around existing zoom is rejected")
+			check(maze.topology_revision == revision, "Rejected square preserves topology revision")
+			check(maze.rooms[second.target].links[a] == null, "Rejected square rolls back passage")
+			check(maze.adjust_zoom(0, a, -1), "Zoom can be removed before opening corner")
+			check(not maze.create(second.target, a, "straight", up).is_empty(), "Square without zoom remains allowed")
+			revision = maze.topology_revision
+			for endpoint in [Vector2i(0, a), Vector2i(first.target, first.face)]:
+				for delta in [-1, 1]:
+					check(not maze.adjust_zoom(endpoint.x, endpoint.y, delta), "Open corner rejects growing and shrinking from either end")
+					check(maze.rooms[endpoint.x].links[endpoint.y].get("zoom", 0) == 0, "Rejected zoom restores endpoint")
+			check(maze.topology_revision == revision, "Rejected zoom preserves topology revision")
+			check(maze.thin_walls().is_empty(), "Rejected zoom leaves no invalid topology")
+			var corridor := maze.create(0, a ^ 1, "straight", up)
+			check(not corridor.is_empty() and maze.adjust_zoom(0, a ^ 1, 1), "Closed mouth beside a hall still allows zoom")
+
 func test_open_hall_columns() -> void:
 	for a in range(6):
 		for b in range((int(a / 2) + 1) * 2, 6):
@@ -1238,6 +1266,33 @@ func test_smooth_zoom_geometry() -> void:
 			var c := maze.tube_deformation(0, p + Vector3.RIGHT * 0.001, Vector3.UP, 1.0)
 			check((Vector2(a.y, a.z) - Vector2(b.y, b.z) * 2.0 + Vector2(c.y, c.z)).length() < 0.00001, "Deformation joins with continuous tangent")
 
+func test_straight_zoom_taper() -> void:
+	for axis in range(3):
+		var up: Vector3 = Maze.NORMALS[((axis + 1) % 3) * 2]
+		var side: Vector3 = Maze.NORMALS[((axis + 2) % 3) * 2]
+		for growing_faces in [[axis * 2], [axis * 2 + 1], [axis * 2, axis * 2 + 1]]:
+			var maze := Maze.new()
+			maze.tubes = true
+			maze.zoom_coefficient = 1.25
+			maze.create(0, axis * 2, "straight", up)
+			maze.create(0, axis * 2 + 1, "straight", up)
+			for face in growing_faces:
+				maze.adjust_zoom(0, face, 1)
+			var negative_width := 0.8 if growing_faces.has(axis * 2 + 1) else 1.0
+			var positive_width := 0.8 if growing_faces.has(axis * 2) else 1.0
+			for section in range(25):
+				var t := section / 24.0
+				var axial := Vector3.ZERO
+				axial[axis] = lerpf(-Maze.HALF, Maze.HALF, t)
+				var width := lerpf(negative_width, positive_width, Maze.smooth_taper(t))
+				var center := -up * Maze.TUBE_RADIUS * (1.0 - width)
+				for angle_step in range(12):
+					var angle := TAU * angle_step / 12.0
+					var rim := axial + center + (up * cos(angle) + side * sin(angle)) * Maze.TUBE_RADIUS * width
+					check(absf(maze.tube_clearance(0, rim, up, 1.0)) < 0.00001, "Straight zoom has a circular smoothly interpolated section along its entire length")
+				var floor_point := axial - up * Maze.TUBE_RADIUS
+				check(absf(maze.tube_clearance(0, floor_point, up, 1.0)) < 0.00001, "Full-length taper preserves the entire flat floor")
+
 func test_saved_smooth_passage() -> void:
 	var importer := State.new()
 	var saved := importer.import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-smooth-fitting.json"))
@@ -1258,6 +1313,29 @@ func test_saved_smooth_passage() -> void:
 			break
 	check(player.room == target, "Player drives through saved zoom junction without a threshold")
 	check(is_equal_approx(player.zoomScale, 0.242), "Saved junction applies one scale transition")
+
+func test_saved_straight_passage() -> void:
+	var importer := State.new()
+	var saved := importer.import_json(FileAccess.get_file_as_string("res://tests/fixtures/zoom-straight-taper.json"))
+	check(not saved.is_empty(), "Straight taper quicksave imports: " + importer.error)
+	if saved.is_empty():
+		return
+	var maze: FoldMaze = saved.maze
+	var player: Dictionary = saved.player
+	var origin: int = player.room
+	var target: int = maze.rooms[origin].links[5].target
+	var expected_scale: float = player.zoomScale * maze.passage_ratio(origin, 5, player.zoomScale)
+	player.cameraForward = Vector3.FORWARD
+	player.forward = Vector3.FORWARD
+	player.cameraUp = player.up
+	player.velocity = Vector3.ZERO
+	player.omega = Vector3.ZERO
+	for tick in range(900):
+		Motion.drive(maze, player, 1.0 / 120.0, 1.0, 0.0)
+		if player.room != origin:
+			break
+	check(player.room == target, "Player drives through saved straight taper without a threshold")
+	check(is_equal_approx(player.zoomScale, expected_scale), "Saved straight taper applies exactly one zoom transition")
 
 func test_geometry_memo() -> void:
 	var maze := Maze.new()

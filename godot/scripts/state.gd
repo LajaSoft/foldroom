@@ -34,7 +34,8 @@ static func export_json(maze: FoldMaze, player: Dictionary, balls: Array, marks:
 				continue
 			seen[link.id] = true
 			passages.append({"a": [room.id, face], "b": [link.target, link.face], "kind": link.kind, "zoom": link.get("zoom", 0)})
-	return JSON.stringify(encode({"format": "foldroom", "version": 1, "zoomCoefficient": maze.zoom_coefficient, "geometry": "tubes" if maze.tubes else "rooms", "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
+	var geometry := "subdivision" if maze.tubes and maze.subdivision_tubes else ("tubes" if maze.tubes else "rooms")
+	return JSON.stringify(encode({"format": "foldroom", "version": 1, "zoomCoefficient": maze.zoom_coefficient, "geometry": geometry, "rooms": rooms, "passages": passages, "player": player, "balls": balls, "marks": marks}), "  ")
 
 func reject(message: String) -> Dictionary:
 	error = message
@@ -114,14 +115,15 @@ func import_json(text: String) -> Dictionary:
 		var image := Image.new()
 		if image.load_png_from_buffer(Marshalls.base64_to_raw(mark.substr(22))) != OK or image.get_width() != 128 or image.get_height() != 128:
 			return reject("Mark image must be a 128×128 PNG")
-	if not data.get("geometry", "rooms") in ["rooms", "tubes"]:
+	if not data.get("geometry", "rooms") in ["rooms", "tubes", "subdivision"]:
 		return reject("Invalid geometry")
 	var maze := Maze.new()
 	var coefficient = data.get("zoomCoefficient", 1.1)
 	if not (coefficient is float or coefficient is int) or not is_finite(float(coefficient)) or coefficient < 1.01 or coefficient > 2.0:
 		return reject("Invalid zoom coefficient")
 	maze.zoom_coefficient = float(coefficient)
-	maze.tubes = data.get("geometry", "rooms") == "tubes"
+	maze.tubes = data.get("geometry", "rooms") in ["tubes", "subdivision"]
+	maze.subdivision_tubes = data.get("geometry", "rooms") == "subdivision"
 	for i in range(data.rooms.size()):
 		var source = data.rooms[i]
 		if not source is Dictionary or not valid_vector(source.get("cell"), 3, 100000):

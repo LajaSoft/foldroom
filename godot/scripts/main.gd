@@ -216,7 +216,7 @@ func build_menu() -> void:
 	var row := HBoxContainer.new()
 	menu_content.add_child(row)
 	button("Ball / Walk", row, switch_mode)
-	button("Rooms / Tubes", row, switch_geometry)
+	button("Rooms / Tubes / Catmull–Clark", row, switch_geometry)
 	button("Jump to start", row, jump_start)
 	row = HBoxContainer.new()
 	menu_content.add_child(row)
@@ -452,7 +452,7 @@ func show_file(save: bool) -> void:
 func open_json(is_import: bool) -> void:
 	set_active(false)
 	importing = is_import
-	json_dialog.title = "Import web / Godot JSON" if importing else "Export web-compatible JSON"
+	json_dialog.title = "Import JSON" if importing else "Export JSON"
 	json_dialog.get_ok_button().text = "Import" if importing else "Close"
 	json_text.text = "" if importing else State.export_json(maze, player, balls, renderer.export_marks())
 	json_error.text = ""
@@ -538,12 +538,17 @@ func jump_start() -> void:
 	gyro.reset()
 
 func switch_geometry() -> void:
-	maze.set_tubes(not maze.tubes, balls + [player])
+	var geometry := 0 if not maze.tubes else (2 if maze.subdivision_tubes else 1)
+	geometry = (geometry + 1) % 3
+	maze.subdivision_tubes = geometry == 2
+	if maze.subdivision_tubes:
+		maze.prepare_subdivision()
+	maze.set_tubes(geometry != 0, balls + [player])
 	renderer.camera_distance = 0
 	gyro.reset()
 	controls.stop_force()
 	dirty = true
-	show_message("Geometry: " + ("Tubes" if maze.tubes else "Rooms"))
+	show_message("Geometry: " + ["Rooms", "Tubes", "Catmull–Clark"][geometry])
 
 func switch_mode() -> void:
 	Motion.set_mode(player, "walk" if player.mode == "ball" else "ball", (Maze.Pipes.BALL_RADIUS if maze.tubes else 0.5) * player.get("zoomScale", 1.0))
@@ -870,12 +875,23 @@ func _process(dt: float) -> void:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("res://tests/bindings-smoke.png")
 			close_setup()
+			maze.subdivision_tubes = false
+			maze.set_tubes(false, balls + [player])
 			switch_geometry()
 			set_active(true)
 			smoke_check(maze.tubes and maze.tube_sample(player.room, player.p, player.up, player.get("zoomScale", 1.0)).clearance >= player.radius, "Tube switch places player inside geometry")
 		if smoke_frames == 140:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png("res://tests/tubes-smoke.png")
+			switch_geometry()
+			smoke_check(maze.tubes and maze.subdivision_tubes, "Catmull–Clark mode is selectable")
+		if smoke_frames == 160:
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("res://tests/subdivision-app-smoke.png")
+			smoke_check(renderer.material_ray.shader.code.contains("#define FOLD_SUBDIVISION"), "Catmull–Clark uses mesh tracing")
+			switch_geometry()
+		if smoke_frames == 180:
+			smoke_check(not maze.tubes and not maze.subdivision_tubes, "Geometry selection returns to rooms")
 			quit_game(1 if smoke_failed else 0)
 
 func save_audio_settings() -> void:

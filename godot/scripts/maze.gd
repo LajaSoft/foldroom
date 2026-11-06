@@ -5,6 +5,7 @@ const HALF := 3.0
 const MAX_ROOMS := 10000
 const NORMALS := [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
 const Pipes = preload("res://scripts/pipe_catalog.gd")
+const Subdivision = preload("res://scripts/subdivision_pipes.gd")
 const TUBE_RADIUS := Pipes.RADIUS
 const MIN_ZOOM := 0.2
 const MAX_ZOOM := 4.5
@@ -58,6 +59,11 @@ var geometry_sphere_hits := 0
 var geometry_profile_builds := 0
 var zoom_coefficient := 1.1
 var tubes := false
+var subdivision_tubes := false
+var subdivision_profiles := {}
+var subdivision_corners_cache := {}
+var subdivision_revision := -1
+var subdivision_coefficient := -1.0
 var topology_revision := 0
 var pipe_revision := -1
 var pipe_masks := PackedByteArray()
@@ -116,6 +122,19 @@ static func boundary_key(cell: Vector3i, face: int) -> String:
 
 func thin_walls() -> Dictionary:
 	var result := {}
+	# A zoom mouth needs a closed perimeter on both ends. Evaluate directly
+	# from links: edits call this before the topology cache is invalidated.
+	for source in rooms:
+		var corners := open_hall_corners(source.id)
+		var bit := 0
+		for a in range(6):
+			for b in range((int(a / 2) + 1) * 2, 6):
+				if corners & (1 << bit):
+					for face in [a, b]:
+						var link = source.links[face]
+						if link != null and link.get("zoom", 0) != 0:
+							result["zoom-corner:%d:%d:%d" % [source.id, a, b]] = true
+				bit += 1
 	for source in rooms:
 		for face in range(6):
 			var link = source.links[face]
@@ -236,7 +255,7 @@ func create(room_id: int, face: int, kind: String, up: Vector3) -> Dictionary:
 		if rooms.size() > previous_count:
 			rooms.pop_back()
 			cells.erase(cell)
-		last_error = "Folded passages cannot leave an exposed wall or corner"
+		last_error = "Passages cannot leave a folded or zoom corner exposed"
 		return {}
 	topology_revision += 1
 	next_link += 1
@@ -331,12 +350,22 @@ func passage_ratio(room_id: int, face: int, scale_value: float = 1.0) -> float:
 	return clampf(scale_value * pow(zoom_coefficient, link.get("zoom", 0)), MIN_ZOOM, MAX_ZOOM) / scale_value
 
 func adjust_zoom(room_id: int, face: int, delta: int) -> bool:
+	last_error = ""
 	var link = rooms[room_id].links[face]
 	if link == null:
 		last_error = "Aim at an existing passage"
 		return false
-	link.zoom = clampi(link.get("zoom", 0) + delta, -1, 1)
-	rooms[link.target].links[link.face].zoom = -link.zoom
+	var previous := thin_walls()
+	var old_zoom: int = link.get("zoom", 0)
+	var reverse: Dictionary = rooms[link.target].links[link.face]
+	var old_reverse_zoom: int = reverse.get("zoom", 0)
+	link.zoom = clampi(old_zoom + delta, -1, 1)
+	reverse.zoom = -link.zoom
+	if introduces_thin_wall(previous):
+		link.zoom = old_zoom
+		reverse.zoom = old_reverse_zoom
+		last_error = "Zoom passages cannot have an open corner"
+		return false
 	topology_revision += 1
 	return true
 
@@ -603,7 +632,11 @@ func geometry_profile(room_id: int, up: Vector3, scale_value: float) -> Dictiona
 			for face in range(6):
 				if signature.z & (1 << face):
 					warps.append({"normal": NORMALS[face], "axis": int(face / 2), "factor": 1.0 / ratio, "anchor": zoom_anchor(face, up)})
-		var profile := {"warps": warps, "fields": ExactMemo.new(FIELD_CACHE_LIMIT), "samples": ExactMemo.new(SAMPLE_CACHE_LIMIT), "spheres": ExactMemo.new(SPHERE_CACHE_LIMIT)}
+		var straight_axis := -1
+		for axis in range(3):
+			if signature.x == (3 << (axis * 2)) and signature.y == 0:
+				straight_axis = axis
+		var profile := {"warps": warps, "straight_axis": straight_axis, "fields": ExactMemo.new(FIELD_CACHE_LIMIT), "samples": ExactMemo.new(SAMPLE_CACHE_LIMIT), "spheres": ExactMemo.new(SPHERE_CACHE_LIMIT)}
 		remember(geometry_profiles, key, profile, GEOMETRY_PROFILE_LIMIT)
 		geometry_profile_builds += 1
 		geometry_last_profile = profile
@@ -616,6 +649,22 @@ func geometry_profile(room_id: int, up: Vector3, scale_value: float) -> Dictiona
 static func deform_tube(profile: Dictionary, p: Vector3) -> Vector4:
 	var mapped := p
 	var metric := 1.0
+	if profile.straight_axis >= 0 and not profile.warps.is_empty():
+		var axis: int = profile.straight_axis
+		var negative_width := 1.0
+		var positive_width := 1.0
+		for warp: Dictionary in profile.warps:
+			if warp.normal[axis] > 0:
+				positive_width = warp.factor
+			if warp.normal[axis] < 0:
+				negative_width = warp.factor
+		var width := lerpf(negative_width, positive_width, smooth_taper((p[axis] + HALF) / (2.0 * HALF)))
+		var anchor: Vector3 = profile.warps[0].anchor
+		var axial := Vector3.ZERO
+		axial[axis] = p[axis]
+		mapped = axial + anchor + (p - axial - anchor) / width
+		metric = width / (1.0 + 4.0 * TUBE_RADIUS * (1.0 - minf(negative_width, positive_width)))
+		return Vector4(mapped.x, mapped.y, mapped.z, metric)
 	for warp: Dictionary in profile.warps:
 		var weight := smooth_taper((p.dot(warp.normal) - 1.5) / 1.5)
 		for axis in range(3):
@@ -635,6 +684,8 @@ func tube_deformation(room_id: int, p: Vector3, up: Vector3, scale_value: float)
 	return deform_tube(geometry_profile(room_id, up, scale_value), p)
 
 func tube_clearance(room_id: int, p: Vector3, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> float:
+	if subdivision_tubes:
+		return Subdivision.sample(subdivision_profile(room_id, up, scale_value), p).clearance
 	if not room_has_zoom(room_id):
 		return base_tube_clearance(room_id, p)
 	var profile := geometry_profile(room_id, up, scale_value)
@@ -676,6 +727,8 @@ func rescale_actor(actor: Dictionary, radius: float) -> void:
 	actor.radius = radius
 
 func tube_sample(room_id: int, p: Vector3, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> Dictionary:
+	if subdivision_tubes:
+		return Subdivision.sample(subdivision_profile(room_id, up, scale_value), p)
 	var profile := geometry_profile(room_id, up, scale_value) if room_has_zoom(room_id) else {}
 	if geometry_memo_enabled and not profile.is_empty() and profile.samples.has(p):
 		geometry_sample_hits += 1
@@ -695,6 +748,8 @@ func tube_sample(room_id: int, p: Vector3, up: Vector3 = Vector3.UP, scale_value
 # The fillet field is not an exact signed distance. Test the sphere's support
 # against the actual surface instead of treating center clearance as its radius.
 func tube_sphere_sample(room_id: int, p: Vector3, radius: float, up: Vector3 = Vector3.UP, scale_value: float = 1.0) -> Dictionary:
+	if subdivision_tubes:
+		return tube_sample(room_id, p, up, scale_value)
 	var mask := tube_shape_mask(room_id)
 	var corners := hall_corners[room_id]
 	var cacheable := not room_has_zoom(room_id)
@@ -760,3 +815,65 @@ func set_tubes(enabled: bool, actors: Array) -> void:
 				actor.p[axis] = clampf(actor.p[axis], -HALF + actor.get("radius", 1.0), HALF - actor.get("radius", 1.0))
 		constrain_actor(actor)
 	impacts.clear()
+
+func ensure_subdivision_cache() -> void:
+	if subdivision_revision != topology_revision or subdivision_coefficient != zoom_coefficient:
+		subdivision_profiles.clear()
+		subdivision_corners_cache.clear()
+		subdivision_revision = topology_revision
+		subdivision_coefficient = zoom_coefficient
+
+func subdivision_profile(room_id: int, up: Vector3, scale_value: float) -> Dictionary:
+	ensure_subdivision_cache()
+	var mask := tube_shape_mask(room_id)
+	var corners := subdivision_corners(room_id)
+	var widths := PackedFloat32Array()
+	for face in range(6):
+		widths.append(1.0 / maxf(1.0, passage_ratio(room_id, face, scale_value)))
+	var key := [mask, corners, up, widths]
+	if not subdivision_profiles.has(key):
+		remember(subdivision_profiles, key, Subdivision.profile(Subdivision.symbol(mask, corners), widths, up), 128)
+	return subdivision_profiles[key]
+
+func prepare_subdivision() -> Array:
+	ensure_subdivision_cache()
+	var bases := {}
+	for source in rooms:
+		var mask := tube_shape_mask(source.id)
+		var corners := subdivision_corners(source.id)
+		var key := Vector2i(mask, corners)
+		if bases.has(key):
+			continue
+		bases[key] = Subdivision.symbol(mask, corners)
+		for up: Vector3 in NORMALS:
+			subdivision_profile(source.id, up, 1.0)
+	return bases.values()
+
+func subdivision_corners(room_id: int) -> int:
+	ensure_subdivision_cache()
+	if subdivision_corners_cache.has(room_id):
+		return subdivision_corners_cache[room_id]
+	var result := tube_corner_mask(room_id)
+	for octant in range(8):
+		var directions := [int(octant & 1), 2 + int((octant >> 1) & 1), 4 + int((octant >> 2) & 1)]
+		var members := {0: room_id}
+		var complete := true
+		for subset in range(8):
+			if not members.has(subset):
+				complete = false
+				break
+			for axis in range(3):
+				if subset & (1 << axis):
+					continue
+				var target := straight_neighbor(members[subset], directions[axis])
+				var next := subset | (1 << axis)
+				if target < 0 or (members.has(next) and members[next] != target):
+					complete = false
+					break
+				members[next] = target
+			if not complete:
+				break
+		if complete:
+			result |= 1 << (12 + octant)
+	subdivision_corners_cache[room_id] = result
+	return result

@@ -1,7 +1,7 @@
 # Music selection
 
 Native Godot 4.4+; no new dependencies or external audio assets.
-Settings → AUDIO → Music track offers four synthesized compositions:
+Settings → AUDIO → Music track offers five synthesized compositions:
 
 1. `ratio drive` (default): fixed 120 BPM sample clock, with fifteen melodic
    sequencers at /8, /7, /6, /5, /4, /3, /2, x1, x2, x3, x4, x5, x6, x7, x8.
@@ -36,6 +36,8 @@ Settings → AUDIO → Music track offers four synthesized compositions:
    kick, backbeat snare, hats and cymbal accents. Driving changes energy and tempo;
    melody stays synchronized to the rock rhythm. No artist or song references.
 4. `trance style`: the existing generative composition, preserved below.
+5. `generated dm`: supplied two-voice D-minor ABC song at 145 BPM, followed by
+   phrase variations and responses; see the conversion and arrangement notes below.
 
 Selection is stored by track name in `user://audio.cfg`. Settings without a saved track start with
 `ratio drive`; existing selections remain selected. Switching starts the chosen composition with a fresh fade-in,
@@ -156,3 +158,45 @@ there is no automatic level reducer or additional compressor. Raw music output
 may exceed unity before this stage. Continuity tests normalize for the explicit
 output gain; stereo width is also tested on an isolated melodic voice because
 the louder centered rhythm intentionally dominates whole-mix energy.
+
+## Generated Dm — supplied ABC composition
+
+`generated dm` is a fifth, independent track (Godot 4.4+, existing synth;
+Python 3 standard library for offline conversion, no added dependencies).
+Source: `godot/music/generated_dm.abc`; rebuild its JSON score with
+`python3 tools/convert_music_abc.py`. Runtime loads the bundled JSON without
+Python. The converter validates the restricted ABC dialect, exact 32-unit bars,
+voice alignment, D-minor key signature, octave marks, bar-local accidentals and
+multibar rests. Unsupported note syntax fails instead of silently changing notes.
+Identical bars share pattern IDs; section arrays reconstruct both complete voices.
+
+Analysis: 4/4, quarter = 145, D minor; all note onsets lie on an eighth-note grid.
+The 73-bar form is intro 8, verse 16, chorus 17 (including instrumental tail),
+interlude 8, contrasting chorus 16, interlude 8. Verse phrases recur every four
+bars with changed endings. The instrumental interlude repeats exactly at the end.
+Its E-flat is chromatic; `_e` also affects the later `e` in the same bar in ABC.
+The contrasting chorus is retained separately rather than merged with chorus one.
+
+The first complete pass preserves every supplied note/rest in both voices.
+Afterwards the 65-bar body loops from the verse. Each four-bar phrase receives a
+new variation index; one interior note per eligible bar moves to a nearby D-minor
+pitch, protecting the first and final notes, rhythm and rests. Chromatic interludes
+remain literal. Quiet guitar responses occur only when both source voices rest.
+Speed increases bass/hat density; passage events encourage responses and impacts
+raise their level. Tempo remains 145 BPM and section changes occur on bar lines.
+
+Accompaniment is an inferred arrangement, since the ABC supplies no chord symbols:
+intro/choruses Dm–Bb–F–Am, verse Dm–Gm–Bb–C, interlude Dm–Eb–C–Am.
+Vocal becomes a brass-like synth, instrumental voice a rounded lead, supported by
+pads, bass, kick and snare. This reconstructs notes, not the generated recording's
+original timbres, vocals or production.
+
+Validation: `python3 -m unittest discover -s tests -p test_convert_music_abc.py`
+and `docker compose run --rm --no-deps godot-test`. Cases cover reproducible
+conversion, repeated phrases, E-flat/B-flat/octaves, invalid syntax/durations,
+voice alignment, all 73 source bars, loop boundaries, independent variations,
+chromatic preservation, 500 bars of bounded memory, track switching, acceleration,
+fixed tempo, finite output/headroom, real-time rendering and pause release.
+Listening: select AUDIO → Music track → generated dm; resume the room, accelerate
+and stop. Listen through the first pass (about 121 seconds), then compare repeated
+verse phrases and answers with the initial statement.
