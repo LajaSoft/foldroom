@@ -256,6 +256,13 @@ static func symbol(mask: int, corners: int) -> Dictionary:
 	var key := Vector2i(mask, corners)
 	if symbols.has(key):
 		return symbols[key]
+	var result := build_symbol(mask, corners)
+	symbols[key] = result
+	topology_builds += 1
+	return result
+
+static func build_symbol(mask: int, corners: int) -> Dictionary:
+	var key := Vector2i(mask, corners)
 	var mesh := cage(mask, corners)
 	for level in range(LEVELS):
 		mesh = subdivide(mesh)
@@ -276,8 +283,6 @@ static func symbol(mask: int, corners: int) -> Dictionary:
 		normals[index] = normals[index].normalized()
 	var result := {"key": key, "vertices": mesh.vertices, "triangles": triangles, "normals": normals, "nodes": [], "ordered": [], "gpu_root": -1}
 	build_node(result, range(triangles.size()))
-	symbols[key] = result
-	topology_builds += 1
 	return result
 
 static func position(feature: PackedVector4Array, widths: PackedFloat32Array, up: Vector3) -> Vector3:
@@ -421,7 +426,7 @@ static func sample(surface: Dictionary, p: Vector3) -> Dictionary:
 	surface.samples[p] = result
 	return result
 
-static func texture(records: Array) -> ImageTexture:
+static func texture_image(records: Array) -> Image:
 	var height := maxi(1, ceili(records.size() / 1024.0))
 	var values := PackedFloat32Array()
 	values.resize(1024 * height * 4)
@@ -429,9 +434,9 @@ static func texture(records: Array) -> ImageTexture:
 		var record: Vector4 = records[index]
 		for channel in range(4):
 			values[index * 4 + channel] = record[channel]
-	return ImageTexture.create_from_image(Image.create_from_data(1024, height, false, Image.FORMAT_RGBAF, values.to_byte_array()))
+	return Image.create_from_data(1024, height, false, Image.FORMAT_RGBAF, values.to_byte_array())
 
-static func gpu_data(bases: Array) -> Dictionary:
+static func gpu_images(bases: Array) -> Dictionary:
 	var vertices := []
 	var triangles := []
 	var nodes := []
@@ -455,4 +460,10 @@ static func gpu_data(bases: Array) -> Dictionary:
 			for channel in range(6):
 				nodes.append(node.coefficient_min[channel])
 				nodes.append(node.coefficient_max[channel])
-	return {"vertices": texture(vertices), "triangles": texture(triangles), "nodes": texture(nodes), "roots": roots}
+	return {"vertices": texture_image(vertices), "triangles": texture_image(triangles), "nodes": texture_image(nodes), "roots": roots}
+
+static func gpu_textures(images: Dictionary) -> Dictionary:
+	return {"vertices": ImageTexture.create_from_image(images.vertices), "triangles": ImageTexture.create_from_image(images.triangles), "nodes": ImageTexture.create_from_image(images.nodes), "roots": images.roots}
+
+static func gpu_data(bases: Array) -> Dictionary:
+	return gpu_textures(gpu_images(bases))

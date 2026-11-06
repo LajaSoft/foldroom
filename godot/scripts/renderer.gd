@@ -13,6 +13,8 @@ var shader_variants := {}
 var use_web_shaders := false
 var needs_box_profiles := false
 var box_profile_indices := {}
+var subdivision_gpu_keys: Array = []
+var subdivision_gpu_data := {}
 var box_profile_texture: ImageTexture
 var profile_link_texture: ImageTexture
 var topology_image: Image
@@ -36,6 +38,17 @@ var frame: Dictionary
 var last_marker := Vector2(-1, -1)
 var last_slot := -1
 var map_radius := 6.0
+
+func install_subdivision_gpu(bases: Array, images: Dictionary) -> void:
+	subdivision_gpu_keys = subdivision_keys(bases)
+	subdivision_gpu_data = Maze.Subdivision.gpu_textures(images)
+
+func subdivision_keys(bases: Array) -> Array:
+	var keys := []
+	for base: Dictionary in bases:
+		keys.append("%d:%d" % [base.key.x, base.key.y])
+	keys.sort()
+	return keys
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -197,7 +210,12 @@ func rebuild(maze: FoldMaze) -> void:
 	var shape_image := Image.create(1024, maxi(1, ceili(maze.rooms.size() / 1024.0)), false, Image.FORMAT_RGBAF)
 	var subdivision_roots := {}
 	if maze.tubes and maze.subdivision_tubes:
-		var data := Maze.Subdivision.gpu_data(maze.prepare_subdivision())
+		var bases := maze.prepare_subdivision()
+		var keys := subdivision_keys(bases)
+		if subdivision_gpu_data.is_empty() or keys != subdivision_gpu_keys:
+			subdivision_gpu_data = Maze.Subdivision.gpu_data(bases)
+			subdivision_gpu_keys = keys
+		var data := subdivision_gpu_data
 		subdivision_roots = data.roots
 		material_ray.set_shader_parameter("subdivision_vertices", data.vertices)
 		material_ray.set_shader_parameter("subdivision_triangles", data.triangles)

@@ -35,11 +35,16 @@ straight symbol interpolates its two ends; junction arms use local blends.
 Shared collars have identical, constant sections and support geometry on both
 sides of the portal plane.
 
-CPU geometry profiles are keyed by symbol, gravity and the six effective mouth
-widths. They include evaluated vertices, a refitted BVH and an exact sample
-memo. Up to 128 profiles are retained. A topology or coefficient edit clears
-these profiles. Immutable subdivision channels are retained. Actor scale
-limits still determine effective ratios, including partial last steps.
+CPU geometry profiles are built on demand and keyed by symbol, gravity and the
+six effective mouth widths. They include evaluated vertices, a refitted BVH and
+an exact sample memo. Up to 128 profiles are retained across edits; changed
+geometry or widths select a different key. Immutable subdivision channels are
+retained. Actor scale limits still determine effective ratios, including
+partial last steps. GPU textures are reused while the set of symbols is unchanged.
+Passage creation and removal build missing symbols and prepare texture images on
+a worker thread. Simulation and editing wait for the result; audio continues on
+the main thread. The renderer installs the completed textures on the main thread.
+If the maze changes during a job, the obsolete result is replaced by a fresh job.
 
 ## Rendering and collision
 

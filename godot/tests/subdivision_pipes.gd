@@ -22,7 +22,16 @@ func run() -> void:
 		maze.create(0, axis * 2, "straight", up)
 		maze.create(0, axis * 2 + 1, "straight", up)
 		maze.adjust_zoom(0, axis * 2, 1)
+		var profiles_before := Subdivision.profile_builds
 		maze.prepare_subdivision()
+		check(Subdivision.profile_builds == profiles_before, "Preparing render symbols does not build collision profiles")
+		var cached := maze.subdivision_profile(0, up, 1.0)
+		maze.zoom_coefficient = 1.2
+		maze.subdivision_profile(0, up, 1.0)
+		maze.zoom_coefficient = 1.1
+		# Restoring the coefficient must recover the same profile when widths match.
+		var restored_profile := maze.subdivision_profile(0, up, 1.0)
+		check(is_same(cached, restored_profile), "Unchanged collision profiles survive coefficient edits")
 		var builds := Subdivision.topology_builds
 		for coefficient in [1.1, 1.5, 2.0]:
 			maze.zoom_coefficient = coefficient

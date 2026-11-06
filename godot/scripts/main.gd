@@ -17,6 +17,10 @@ var gyro := Gyro.new()
 var sound: FoldSound
 var active := false
 var dirty := true
+var subdivision_thread: Thread
+var subdivision_job_maze: FoldMaze
+var subdivision_job_revision := -1
+var subdivision_job_coefficient := 0.0
 var drawing := false
 var marker_cursor := Vector2.ZERO
 var root: Control
@@ -615,6 +619,9 @@ func on_web_pointer_lock_changed(_arguments: Array) -> void:
 		set_active(false)
 
 func _exit_tree() -> void:
+	if subdivision_thread != null:
+		subdivision_thread.wait_to_finish()
+		subdivision_thread = null
 	if pointer_lock_callback != null:
 		var document := JavaScriptBridge.get_interface("document")
 		document.removeEventListener("pointerlockchange", pointer_lock_callback)
@@ -641,6 +648,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_active(true)
 		return
 	if event is InputEventMouseMotion:
+		if subdivision_thread != null:
+			return
 		if drawing and controls.value("marker") > 0:
 			marker_cursor += event.relative
 			var viewport_size := get_viewport().get_visible_rect().size
@@ -665,6 +674,8 @@ func look(delta: Vector2) -> void:
 	player.pitch = clampf(player.pitch - delta.y * 0.0024, -deg_to_rad(89), deg_to_rad(89))
 
 func on_action(action: String) -> void:
+	if subdivision_thread != null:
+		return
 	if not active:
 		if action == "pause" and not setup_panel.visible:
 			set_active(true)
@@ -681,6 +692,49 @@ func on_action(action: String) -> void:
 	if actions.has(action):
 		actions[action].call()
 
+func build_subdivision_job(keys: Array, cached: Dictionary) -> Dictionary:
+	var bases := []
+	var built := []
+	for key: Vector2i in keys:
+		var base: Dictionary
+		if cached.has(key):
+			base = cached[key]
+		else:
+			base = Maze.Subdivision.build_symbol(key.x, key.y)
+			built.append(base)
+		bases.append(base)
+	return {"bases": bases, "built": built, "images": Maze.Subdivision.gpu_images(bases)}
+
+func start_subdivision_job() -> void:
+	if not maze.tubes or not maze.subdivision_tubes or subdivision_thread != null:
+		return
+	var keys := maze.subdivision_symbol_keys()
+	var cached := {}
+	for key: Vector2i in keys:
+		if Maze.Subdivision.symbols.has(key):
+			cached[key] = Maze.Subdivision.symbols[key]
+	subdivision_job_maze = maze
+	subdivision_job_revision = maze.topology_revision
+	subdivision_job_coefficient = maze.zoom_coefficient
+	subdivision_thread = Thread.new()
+	var error := subdivision_thread.start(build_subdivision_job.bind(keys, cached))
+	if error != OK:
+		subdivision_thread = null
+		push_error("Failed to start subdivision worker: " + error_string(error))
+
+func finish_subdivision_job() -> void:
+	var result: Dictionary = subdivision_thread.wait_to_finish()
+	subdivision_thread = null
+	for base: Dictionary in result.built:
+		if not Maze.Subdivision.symbols.has(base.key):
+			Maze.Subdivision.symbols[base.key] = base
+			Maze.Subdivision.topology_builds += 1
+	if maze != subdivision_job_maze or maze.topology_revision != subdivision_job_revision or maze.zoom_coefficient != subdivision_job_coefficient:
+		if dirty:
+			start_subdivision_job()
+		return
+	renderer.install_subdivision_gpu(result.bases, result.images)
+
 func carve(kind: String) -> void:
 	if renderer.camera_distance > 0:
 		show_message("Return to first-person view to edit")
@@ -691,6 +745,7 @@ func carve(kind: String) -> void:
 		show_message(maze.last_error)
 		return
 	dirty = true
+	start_subdivision_job()
 	show_message(kind.capitalize() + " passage · room " + str(link.target + 1))
 
 func edit_passage_zoom(delta: int) -> void:
@@ -713,6 +768,7 @@ func remove_passage() -> void:
 		var result := maze.prune(player.room, [player] + balls)
 		balls = result.actors.filter(func(actor): return actor != player)
 		dirty = true
+		start_subdivision_job()
 		show_message("Passage closed · %d disconnected rooms removed" % result.removed)
 		return
 	if not maze.last_error.is_empty():
@@ -751,6 +807,9 @@ func step_world(dt: float, forward: float, side: float, boost: float) -> void:
 
 func _physics_process(dt: float) -> void:
 	controls.poll(dt)
+	if subdivision_thread != null:
+		controls.stop_force()
+		return
 	gyro.strength = controls.gain
 	gyro.impact_strength = controls.impact_strength
 	if not active:
@@ -822,6 +881,12 @@ func update_gravity_pointer() -> void:
 	gravity_square.color = crosshair.modulate
 
 func _process(dt: float) -> void:
+	if subdivision_thread != null:
+		if subdivision_thread.is_alive():
+			return
+		finish_subdivision_job()
+		if subdivision_thread != null:
+			return
 	if dirty:
 		renderer.rebuild(maze)
 		dirty = false

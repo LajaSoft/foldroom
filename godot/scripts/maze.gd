@@ -818,7 +818,6 @@ func set_tubes(enabled: bool, actors: Array) -> void:
 
 func ensure_subdivision_cache() -> void:
 	if subdivision_revision != topology_revision or subdivision_coefficient != zoom_coefficient:
-		subdivision_profiles.clear()
 		subdivision_corners_cache.clear()
 		subdivision_revision = topology_revision
 		subdivision_coefficient = zoom_coefficient
@@ -836,18 +835,20 @@ func subdivision_profile(room_id: int, up: Vector3, scale_value: float) -> Dicti
 	return subdivision_profiles[key]
 
 func prepare_subdivision() -> Array:
+	var bases := []
+	for key: Vector2i in subdivision_symbol_keys():
+		bases.append(Subdivision.symbol(key.x, key.y))
+	return bases
+
+func subdivision_symbol_keys() -> Array:
 	ensure_subdivision_cache()
-	var bases := {}
+	var keys := {}
 	for source in rooms:
 		var mask := tube_shape_mask(source.id)
 		var corners := subdivision_corners(source.id)
 		var key := Vector2i(mask, corners)
-		if bases.has(key):
-			continue
-		bases[key] = Subdivision.symbol(mask, corners)
-		for up: Vector3 in NORMALS:
-			subdivision_profile(source.id, up, 1.0)
-	return bases.values()
+		keys[key] = true
+	return keys.keys()
 
 func subdivision_corners(room_id: int) -> int:
 	ensure_subdivision_cache()
