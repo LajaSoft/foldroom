@@ -1,90 +1,1932 @@
-X:1
-T:
-M:4/4
-L:1/32
-Q:1/4=145
-V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
-V: Ins clef=treble name="Ins Melody" snm="Inst."
-K:Dm
-% intro
-V: Vocal
-Z4|
-V: Ins
-z4d8d4z4d4c'4d'4|b8z12b4a4b4|f8z4f4z4f4e4f4|a8z4a4z4g8a4|
-V: Vocal
-Z3|z16z4g4g4a4|
-V: Ins
-d8z4d4z4d4c'4d'4|b8z12b4a4b4|f8z4f4z4f4e4f4|a8z4a8z12|
-% verse
-V: Vocal
-d8z12d4g4a4|a4g4z12g4a4b4|b4a4g4f8f4g4a4|z12c'8g4g4a4|
-V: Ins
-Z4|
-V: Vocal
-d8z12d4g4a4|a4g4z12g4a4b4|b4a4g4f8f4g4a4|c'4c'8c'8d'4d'4d4|
-V: Ins
-Z4|
-V: Vocal
-d8z12d4g4a4|a4g4z12g4a4b4|b4a4g4f8f4g4a4|c'4c'4c'4c'8g4g4a4|
-V: Ins
-Z4|
-V: Vocal
-d8z4d4z4d4g4a4|a4g4z12g4a4b4|b4a4g4f8f4g4f4|c'4c'4c'4c'8d'4d'4d'4|
-V: Ins
-Z4|
-% chorus
-V: Vocal
-d8d4d4z4d4f4g4|a8a8a4f8d4|g8a4g8f4d4f4|a8a8a8c'4a4|
-V: Ins
-Z4|
-V: Vocal
-g8f4g8f4d4f4|a8a8a8z4d4|g4g4a4g8f4d4f4|z8c'4a4c'4a4c'4a4|
-V: Ins
-Z4|
-V: Vocal
-g4g4f4g8f4d4f4|a8a8a8a4b4|g8z16c'4d'4|c'8z16c'4d'4|
-V: Ins
-Z4|
-V: Vocal
-c'8z24|Z3|
-V: Ins
-z12d'8c'4a4c'4|d'8z24|z24c'4d'4|c'8z24|
-V: Vocal
-Z|
-V: Ins
-z4c'4d'4f'4z16|
-% interlude
-V: Vocal
-Z4|
-V: Ins
-z4d4a4f4z4d4a4e4|z4_e4b4f4z4e4b4g4|z4c4g4e4z4c4g4f4|z4e4c'4a4z4e4c'4a4|
-V: Vocal
-Z3|z16c4e4f8|
-V: Ins
-z4d4a4f4z4d4a4e4|z4_e4b4f4z4e4b4g4|z4c4g4e4z4c4g4f4|z4e4a4c'4z16|
-% chorus
-V: Vocal
-g8g4f4z8d4e4|f8z24|Z|z16c4d4f8|
-V: Ins
-Z|z12d4z4d4z4d4|B4B4B4B4B4B4B4B4|c4c4c4c4z16|
-V: Vocal
-g12f8z8f4|f4e4z24|z16f8g8|a8f4d8d4f8|
-V: Ins
-Z4|
-V: Vocal
-g8g4f8z4d4e4|f8g4f8z4d4e4|f8g4f8z12|Z|
-V: Ins
-Z3|c4c4c4c4c4c4c4c4|
-V: Vocal
-Z4|
-V: Ins
-d4d4d4d4d4d4d4d4|A4A4A4A4A4A4A4A4|B4B4z8d'8c'8|z4c'4d'4f'4z4e'4d'4c'4|
-% interlude
-V: Vocal
-Z4|
-V: Ins
-z4d4a4f4z4d4a4e4|z4_e4b4f4z4e4b4g4|z4c4g4e4z4c4g4f4|z4e4c'4a4z4e4c'4a4|
-V: Vocal
-Z4|
-V: Ins
-z4d4a4f4z4d4a4e4|z4_e4b4f4z4e4b4g4|z4c4g4e4z4c4g4f4|z4e4a4c'4z16|
+{
+  "bpm": 145,
+  "units_per_bar": 32,
+  "patterns": [
+    [
+      {
+        "slot": 0,
+        "length": 32,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 82
+      },
+      {
+        "slot": 8,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 82
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 82
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 20,
+        "length": 12,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 82
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 82
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 4,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 74
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 82
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 79
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 20,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 74
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 74
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": -1
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 82
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 24,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 86
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 84
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 86
+      },
+      {
+        "slot": 8,
+        "length": 24,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 24,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 86
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 89
+      },
+      {
+        "slot": 16,
+        "length": 16,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 76
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 75
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 82
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 75
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 82
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 79
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 81
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 24,
+        "length": 8,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 81
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 16,
+        "length": 16,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 76
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 8,
+        "length": 24,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 8,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 12,
+        "midi": -1
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 74
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 70
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 16,
+        "length": 16,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 12,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 8,
+        "midi": -1
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 76
+      },
+      {
+        "slot": 8,
+        "length": 24,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 16,
+        "midi": -1
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 24,
+        "length": 8,
+        "midi": 79
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 81
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 77
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 74
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 8,
+        "midi": 77
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 79
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 76
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 76
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 79
+      },
+      {
+        "slot": 12,
+        "length": 8,
+        "midi": 77
+      },
+      {
+        "slot": 20,
+        "length": 12,
+        "midi": -1
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 72
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 72
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 74
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 74
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 69
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 69
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 70
+      },
+      {
+        "slot": 8,
+        "length": 8,
+        "midi": -1
+      },
+      {
+        "slot": 16,
+        "length": 8,
+        "midi": 86
+      },
+      {
+        "slot": 24,
+        "length": 8,
+        "midi": 84
+      }
+    ],
+    [
+      {
+        "slot": 0,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 4,
+        "length": 4,
+        "midi": 84
+      },
+      {
+        "slot": 8,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 12,
+        "length": 4,
+        "midi": 89
+      },
+      {
+        "slot": 16,
+        "length": 4,
+        "midi": -1
+      },
+      {
+        "slot": 20,
+        "length": 4,
+        "midi": 88
+      },
+      {
+        "slot": 24,
+        "length": 4,
+        "midi": 86
+      },
+      {
+        "slot": 28,
+        "length": 4,
+        "midi": 84
+      }
+    ]
+  ],
+  "sections": [
+    {
+      "name": "intro",
+      "Vocal": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5
+      ],
+      "Ins": [
+        1,
+        2,
+        3,
+        4,
+        6,
+        2,
+        3,
+        7
+      ]
+    },
+    {
+      "name": "verse",
+      "Vocal": [
+        8,
+        9,
+        10,
+        11,
+        8,
+        9,
+        10,
+        12,
+        8,
+        9,
+        10,
+        13,
+        14,
+        9,
+        15,
+        16
+      ],
+      "Ins": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "chorus",
+      "Vocal": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        0,
+        0,
+        0,
+        0
+      ],
+      "Ins": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        30,
+        31,
+        32,
+        29,
+        33
+      ]
+    },
+    {
+      "name": "interlude",
+      "Vocal": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        38
+      ],
+      "Ins": [
+        34,
+        35,
+        36,
+        37,
+        34,
+        35,
+        36,
+        39
+      ]
+    },
+    {
+      "name": "chorus",
+      "Vocal": [
+        40,
+        41,
+        0,
+        42,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "Ins": [
+        0,
+        43,
+        44,
+        45,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        53,
+        54,
+        55,
+        56,
+        57
+      ]
+    },
+    {
+      "name": "interlude",
+      "Vocal": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "Ins": [
+        34,
+        35,
+        36,
+        37,
+        34,
+        35,
+        36,
+        39
+      ]
+    }
+  ]
+}
